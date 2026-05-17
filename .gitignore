@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+env/
+.env
+
+# Chroma数据库缓存
+chroma_db/
+chroma_company_docs/
+chroma_llama_law/
+chroma_llama_company/
+.chroma/
+
+# 上传企业文档与本地 registry
+storage/
+
+# 本地评估输出
+data/eval/agent_results/
+data/eval/results/
+
+# API密钥（绝对不要上传）
+.env
+*.key
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# 模型缓存
+*.bin
+*.safetensors
