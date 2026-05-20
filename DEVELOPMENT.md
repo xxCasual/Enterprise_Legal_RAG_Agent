@@ -1,9 +1,11 @@
-# AGENTS.md
+# DEVELOPMENT.md
 
 ## 项目定位
 
 这是一个面向企业劳动合规场景的 RAG + Agent 项目，当前发布版本的核心是：
 
+- React + Vite 前端控制台
+- FastAPI 后端接口
 - 基于 LlamaIndex 的法律问答
 - 基于 LangGraph 的 tool-calling 工作流
 - 企业制度知识库问答
@@ -13,9 +15,19 @@
 ## 运行主路径
 
 - FastAPI 入口：`app/main.py`
+- 前端控制台：`frontend/`
 - Agent 编排：`app/agent/graph.py`
 - 法律 RAG：`app/rag/llama_index_pipeline.py`
 - 业务服务：`app/services/`
+
+本地开发通常分两个进程启动：
+
+```bash
+uvicorn app.main:app --reload
+cd frontend && npm run dev
+```
+
+Vite 会把 `/api` 代理到 `http://127.0.0.1:8000`。
 
 `/api/chat` 会先进入 LangGraph Agent。当前不是简单固定路由，而是：
 
@@ -79,6 +91,7 @@
 
 - 本发布版本不包含 Docker 配置
 - 不包含本地 Chroma 数据、上传文件、模型缓存和历史评估结果
+- 当前没有引入 MySQL/Redis，状态存储仍是 Chroma + 本地 JSON
 - 不包含旧实验目录 `experiments/`
 - 不包含历史兼容入口 `src/`
 
