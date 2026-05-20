@@ -31,14 +31,24 @@ from evaluation.agent_eval import (  # noqa: E402
 )
 
 
-SUBSET_ORDER = ("law_qa", "policy_qa", "refusal", "contract_review")
-SUITE_CHOICES = ("all", "split", "full", "law", "policy", "refusal", "contract")
+SUBSET_ORDER = ("law_qa", "policy_qa", "compliance_qa", "refusal", "contract_review")
+SUITE_CHOICES = (
+    "all",
+    "split",
+    "full",
+    "law",
+    "policy",
+    "compliance",
+    "refusal",
+    "contract",
+)
 SUITE_SUBSETS = {
     "all": (*SUBSET_ORDER, "full"),
     "split": SUBSET_ORDER,
     "full": ("full",),
     "law": ("law_qa",),
     "policy": ("policy_qa",),
+    "compliance": ("compliance_qa",),
     "refusal": ("refusal",),
     "contract": ("contract_review",),
 }
@@ -59,10 +69,13 @@ def split_samples(samples: Sequence[Dict[str, Any]]) -> Dict[str, List[Dict[str,
     return {
         "law_qa": [s for s in samples if s["expected_intent"] == "law_qa"],
         "policy_qa": [s for s in samples if s["expected_intent"] == "policy_qa"],
+        "compliance_qa": [
+            s for s in samples if s["expected_intent"] == "compliance_qa"
+        ],
         "refusal": [
             s
             for s in samples
-            if s["expected_tools"] == [] and s["expected_risk_level"] is None
+            if s["should_refuse"] is True and s["expected_risk_level"] is None
         ],
         "contract_review": [
             s for s in samples if s["expected_risk_level"] is not None
@@ -240,12 +253,34 @@ def routing_only_agent_runner(query: str) -> Dict[str, Any]:
     import time
 
     from app.agent.intent_classifier import IntentClassifier
+    from app.agent.graph import _is_compliance_combo_query, _looks_like_contract_text
     from app.agent.tools import refuse_out_of_scope
     from app.services.contract_review_service import ContractReviewService
 
     started_at = time.perf_counter()
-    intent_result = IntentClassifier(enable_embedding_fallback=False).classify(query)
-    intent = intent_result.intent
+    if _looks_like_contract_text(query):
+        intent = "contract_review"
+    else:
+        intent_result = IntentClassifier(enable_embedding_fallback=False).classify(query)
+        intent = intent_result.intent
+
+    if intent != "contract_review" and _is_compliance_combo_query(query):
+        tools = ["search_company_policy", "search_law_articles"]
+        return {
+            "answer": "routing-only: compliance_qa",
+            "citations": [],
+            "route": "compliance_qa",
+            "intent": "compliance_qa",
+            "intent_source": "rule",
+            "intent_confidence": 1.0,
+            "tools_used": tools,
+            "tool_trace": [{"name": name, "status": "ok"} for name in tools],
+            "result_type": "compliance_qa",
+            "latency": round(time.perf_counter() - started_at, 3),
+        }
+
+    if intent == "contract_review":
+        intent_result = IntentClassifier(enable_embedding_fallback=False).classify(query)
 
     if intent == "contract_review":
         reviewer = ContractReviewService(law_search=lambda _: {"contexts": []})
@@ -265,6 +300,7 @@ def routing_only_agent_runner(query: str) -> Dict[str, Any]:
             "intent_source": intent_result.source,
             "intent_confidence": intent_result.confidence,
             "tools_used": ["contract_review_rules"],
+            "tool_trace": [{"name": "contract_review_rules", "status": "ok"}],
             "result_type": "contract_review",
             "risk_level": risk_level,
             "review_status": review_status,
@@ -281,7 +317,8 @@ def routing_only_agent_runner(query: str) -> Dict[str, Any]:
             "intent": "refusal",
             "intent_source": intent_result.source,
             "intent_confidence": intent_result.confidence,
-            "tools_used": [],
+            "tools_used": ["refuse_out_of_scope"],
+            "tool_trace": [{"name": "refuse_out_of_scope", "status": "ok"}],
             "result_type": "refusal",
             "latency": round(time.perf_counter() - started_at, 3),
         }
@@ -298,6 +335,7 @@ def routing_only_agent_runner(query: str) -> Dict[str, Any]:
         "intent_source": intent_result.source,
         "intent_confidence": intent_result.confidence,
         "tools_used": tools,
+        "tool_trace": [{"name": name, "status": "ok"} for name in tools],
         "result_type": intent,
         "latency": round(time.perf_counter() - started_at, 3),
     }

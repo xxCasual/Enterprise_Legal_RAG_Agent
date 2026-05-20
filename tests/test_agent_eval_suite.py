@@ -35,7 +35,14 @@ def test_agent_eval_suite_splits_samples_by_expected_fields() -> None:
     samples = [
         _sample("试用期最长多久？", "law_qa", ["search_law_articles"], False, None),
         _sample("工资发放日？", "policy_qa", ["search_company_policy"], False, None),
-        _sample("讲个笑话", None, [], True, None),
+        _sample(
+            "法律和制度都怎么看？",
+            "compliance_qa",
+            ["search_company_policy", "search_law_articles"],
+            False,
+            None,
+        ),
+        _sample("讲个笑话", None, ["refuse_out_of_scope"], True, None),
         _sample("合同写放弃社保", None, ["contract_review_rules"], True, "high"),
     ]
 
@@ -43,15 +50,19 @@ def test_agent_eval_suite_splits_samples_by_expected_fields() -> None:
 
     assert [sample["query"] for sample in subsets["law_qa"]] == ["试用期最长多久？"]
     assert [sample["query"] for sample in subsets["policy_qa"]] == ["工资发放日？"]
+    assert [sample["query"] for sample in subsets["compliance_qa"]] == [
+        "法律和制度都怎么看？"
+    ]
     assert [sample["query"] for sample in subsets["refusal"]] == ["讲个笑话"]
     assert [sample["query"] for sample in subsets["contract_review"]] == ["合同写放弃社保"]
-    assert len(subsets["full"]) == 4
+    assert len(subsets["full"]) == 5
 
 
 def test_agent_eval_suite_selects_expected_subsets() -> None:
     assert suite.selected_subsets("all") == (
         "law_qa",
         "policy_qa",
+        "compliance_qa",
         "refusal",
         "contract_review",
         "full",
@@ -59,6 +70,7 @@ def test_agent_eval_suite_selects_expected_subsets() -> None:
     assert suite.selected_subsets("split") == (
         "law_qa",
         "policy_qa",
+        "compliance_qa",
         "refusal",
         "contract_review",
     )
@@ -133,8 +145,18 @@ def test_routing_only_agent_runner_returns_expected_tools_without_rag() -> None:
     assert policy_result["intent"] == "policy_qa"
     assert policy_result["tools_used"] == ["search_company_policy"]
     assert refusal_result["intent"] == "refusal"
-    assert refusal_result["tools_used"] == []
+    assert refusal_result["tools_used"] == ["refuse_out_of_scope"]
     assert refusal_result["result_type"] == "refusal"
+
+
+def test_routing_only_agent_runner_returns_multi_tool_for_compliance_query() -> None:
+    result = suite.routing_only_agent_runner(
+        "公司制度写加班要审批，那法律上还能拒绝加班费吗？"
+    )
+
+    assert result["intent"] == "compliance_qa"
+    assert result["tools_used"] == ["search_company_policy", "search_law_articles"]
+    assert result["result_type"] == "compliance_qa"
 
 
 def test_routing_only_agent_runner_reviews_contract_risk_without_evidence() -> None:
@@ -188,6 +210,7 @@ if __name__ == "__main__":
     test_agent_eval_suite_seeds_company_policy_index_when_empty()
     test_agent_eval_suite_skips_policy_seed_when_index_has_context()
     test_routing_only_agent_runner_returns_expected_tools_without_rag()
+    test_routing_only_agent_runner_returns_multi_tool_for_compliance_query()
     test_routing_only_agent_runner_reviews_contract_risk_without_evidence()
     test_agent_eval_suite_writes_suite_summary()
     print("agent eval suite ok")

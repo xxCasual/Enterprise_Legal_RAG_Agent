@@ -750,7 +750,7 @@ def _validate_sample(sample: Dict[str, Any], index: int) -> None:
     if not isinstance(sample["query"], str) or not sample["query"].strip():
         raise ValueError(f"Sample #{index} query must be a non-empty string")
 
-    if sample["expected_intent"] not in {None, "law_qa", "policy_qa"}:
+    if sample["expected_intent"] not in {None, "law_qa", "policy_qa", "compliance_qa"}:
         raise ValueError(f"Sample #{index} expected_intent is invalid")
 
     if not isinstance(sample["expected_tools"], list):

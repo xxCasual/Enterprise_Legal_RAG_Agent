@@ -159,6 +159,31 @@ def test_agent_eval_requires_no_tools_when_expected_tools_is_empty() -> None:
     assert agent_eval._tools_match([], ["search_law_articles"]) is False
 
 
+def test_agent_eval_accepts_compliance_qa_multi_tool_samples() -> None:
+    samples = [
+        _sample(
+            "公司制度写加班要审批，那法律上还能拒绝加班费吗？",
+            "compliance_qa",
+            ["search_company_policy", "search_law_articles"],
+            False,
+            None,
+        )
+    ]
+
+    def fake_agent_runner(_: str):
+        return {
+            "intent": "compliance_qa",
+            "tools_used": ["search_company_policy", "search_law_articles"],
+            "answer": "综合答案",
+        }
+
+    rows, summary = agent_eval.run_agent_eval(samples, agent_runner=fake_agent_runner)
+
+    assert rows[0]["intent_match"] is True
+    assert rows[0]["tool_call_match"] is True
+    assert summary["metrics"]["tool_call_accuracy"]["score"] == 1.0
+
+
 def test_agent_eval_treats_refusal_route_as_refused() -> None:
     assert agent_eval._extract_refused(
         {
@@ -190,6 +215,7 @@ if __name__ == "__main__":
     test_agent_eval_uses_dedicated_results_directory()
     test_agent_eval_records_sample_errors_without_stopping()
     test_agent_eval_requires_no_tools_when_expected_tools_is_empty()
+    test_agent_eval_accepts_compliance_qa_multi_tool_samples()
     test_agent_eval_treats_refusal_route_as_refused()
     test_agent_eval_validates_required_fields()
     print("agent eval ok")

@@ -1,37 +1,55 @@
-"""LangGraph assistant workflow for legal QA, policy QA, contract review, and refusal."""
+"""LangGraph workflow wiring for the enterprise legal assistant."""
 
 from __future__ import annotations
 
 import time
-from typing import Dict
+from typing import Any, Dict
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.intent_classifier import SUPPORTED_INTENTS, IntentClassifier
+from app.agent.answering import answer_node, _state_from_payload
+from app.agent.constants import (
+    PLANNER_SYSTEM_PROMPT,
+    POLICY_ONLY_HINTS,
+    PUBLIC_TOOL_NAMES,
+    TOOL_BY_INTENT,
+)
+from app.agent.executor import execute_tool_state
+from app.agent.guards import (
+    guardrail_node,
+    intent_classifier,
+    intent_router,
+    route_after_guardrail,
+    rule_intent_classifier,
+    _contains_any,
+    _forced_tool_state,
+    _is_compliance_combo_query,
+    _looks_like_contract_text,
+)
+from app.agent.planner import (
+    build_tool_plan_state,
+    plan_tools_with_llm,
+    _coerce_tool_args,
+    _fallback_tool_calls,
+    _normalize_tool_calls,
+    _tool_calls_from_message,
+)
 from app.agent.state import AgentState
 from app.agent.tools import (
     refuse_out_of_scope,
+    registered_agent_tools,
     review_labor_contract,
     search_company_policy,
     search_law_articles,
 )
 
 
-intent_classifier = IntentClassifier()
+def tool_planner_node(state: AgentState) -> AgentState:
+    return build_tool_plan_state(state, plan_tools_with_llm)
 
 
-def intent_router(state: AgentState) -> AgentState:
-    query = state["query"]
-    result = intent_classifier.classify(query)
-    intent = result.intent
-    if intent not in SUPPORTED_INTENTS:
-        intent = "refusal"
-    return {
-        "intent": intent,
-        "route": intent,
-        "intent_source": result.source,
-        "intent_confidence": round(result.confidence, 4),
-    }
+def tool_executor_node(state: AgentState) -> AgentState:
+    return execute_tool_state(state, _execute_tool)
 
 
 def route_after_intent(state: AgentState) -> str:
@@ -45,62 +63,42 @@ def route_after_intent(state: AgentState) -> str:
 
 def law_qa_node(state: AgentState) -> AgentState:
     payload = search_law_articles(state["query"])
-    return _state_from_payload(payload, ["search_law_articles"])
+    return _state_from_payload(payload, ["search_law_articles"], [])
 
 
 def policy_qa_node(state: AgentState) -> AgentState:
     payload = search_company_policy(state["query"])
-    return _state_from_payload(payload, ["search_company_policy"])
+    return _state_from_payload(payload, ["search_company_policy"], [])
 
 
 def contract_review_node(state: AgentState) -> AgentState:
     payload = review_labor_contract(state["query"])
-    return _state_from_payload(payload, ["contract_review_rules"])
+    return _state_from_payload(payload, ["contract_review_rules"], [])
 
 
 def refusal_node(state: AgentState) -> AgentState:
     payload = refuse_out_of_scope(state["query"])
-    return _state_from_payload(payload, [])
-
-
-def _state_from_payload(payload: Dict[str, object], tools_used: list[str]) -> AgentState:
-    return {
-        "retrieval_payload": payload,
-        "retrieved_contexts": payload.get("contexts", []),
-        "citations": payload.get("citations", []),
-        "tools_used": tools_used,
-        "route": payload.get("route", ""),
-        "result_type": payload.get("result_type", payload.get("route", "")),
-        "answer": payload.get("answer", ""),
-        "risk_level": payload.get("risk_level"),
-        "review_status": payload.get("review_status"),
-        "review_id": payload.get("review_id"),
-        "contract_review": payload.get("contract_review"),
-    }
+    return _state_from_payload(payload, [], [])
 
 
 def build_agent_graph():
     builder = StateGraph(AgentState)
-    builder.add_node("intent_router", intent_router)
-    builder.add_node("law_qa_node", law_qa_node)
-    builder.add_node("policy_qa_node", policy_qa_node)
-    builder.add_node("contract_review_node", contract_review_node)
-    builder.add_node("refusal_node", refusal_node)
-    builder.add_edge(START, "intent_router")
+    builder.add_node("guardrail", guardrail_node)
+    builder.add_node("tool_planner", tool_planner_node)
+    builder.add_node("tool_executor", tool_executor_node)
+    builder.add_node("answer", answer_node)
+    builder.add_edge(START, "guardrail")
     builder.add_conditional_edges(
-        "intent_router",
-        route_after_intent,
+        "guardrail",
+        route_after_guardrail,
         {
-            "law_qa_node": "law_qa_node",
-            "policy_qa_node": "policy_qa_node",
-            "contract_review_node": "contract_review_node",
-            "refusal_node": "refusal_node",
+            "tool_planner": "tool_planner",
+            "tool_executor": "tool_executor",
         },
     )
-    builder.add_edge("law_qa_node", END)
-    builder.add_edge("policy_qa_node", END)
-    builder.add_edge("contract_review_node", END)
-    builder.add_edge("refusal_node", END)
+    builder.add_edge("tool_planner", "tool_executor")
+    builder.add_edge("tool_executor", "answer")
+    builder.add_edge("answer", END)
     return builder.compile()
 
 
@@ -119,6 +117,7 @@ def run_agent_chat(query: str) -> Dict[str, object]:
         "intent_source": result.get("intent_source", ""),
         "intent_confidence": result.get("intent_confidence", 0.0),
         "tools_used": result.get("tools_used", []),
+        "tool_trace": result.get("tool_trace", []),
         "result_type": result.get("result_type", result.get("route", "")),
         "risk_level": result.get("risk_level"),
         "review_status": result.get("review_status"),
@@ -126,3 +125,54 @@ def run_agent_chat(query: str) -> Dict[str, object]:
         "contract_review": result.get("contract_review"),
         "latency": latency,
     }
+
+
+def _execute_tool(name: str, args: Dict[str, Any], query: str) -> Dict[str, Any]:
+    if name == "search_law_articles":
+        return search_law_articles(str(args.get("query") or query))
+    if name == "search_company_policy":
+        return search_company_policy(str(args.get("query") or query))
+    if name == "contract_review_rules":
+        return review_labor_contract(
+            str(args.get("contract_text") or args.get("query") or query),
+            include_evidence=False,
+        )
+    if name == "refuse_out_of_scope":
+        return refuse_out_of_scope(str(args.get("query") or query))
+    raise ValueError(f"Unknown tool: {name}")
+
+
+__all__ = [
+    "PLANNER_SYSTEM_PROMPT",
+    "POLICY_ONLY_HINTS",
+    "PUBLIC_TOOL_NAMES",
+    "TOOL_BY_INTENT",
+    "agent_graph",
+    "answer_node",
+    "build_agent_graph",
+    "contract_review_node",
+    "guardrail_node",
+    "intent_classifier",
+    "intent_router",
+    "law_qa_node",
+    "plan_tools_with_llm",
+    "policy_qa_node",
+    "refusal_node",
+    "registered_agent_tools",
+    "route_after_guardrail",
+    "route_after_intent",
+    "rule_intent_classifier",
+    "run_agent_chat",
+    "tool_executor_node",
+    "tool_planner_node",
+    "_coerce_tool_args",
+    "_contains_any",
+    "_execute_tool",
+    "_fallback_tool_calls",
+    "_forced_tool_state",
+    "_is_compliance_combo_query",
+    "_looks_like_contract_text",
+    "_normalize_tool_calls",
+    "_state_from_payload",
+    "_tool_calls_from_message",
+]

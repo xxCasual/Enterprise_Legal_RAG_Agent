@@ -140,6 +140,104 @@ def test_refusal_node_marks_result_as_refused() -> None:
     assert result["retrieval_payload"]["refused"] is True
 
 
+def test_guardrail_forces_contract_review_tool() -> None:
+    result = agent_graph.guardrail_node(
+        {"query": "请审查这份劳动合同：员工自愿放弃社保。"}
+    )
+
+    assert result["intent"] == "contract_review"
+    assert result["forced_tool"] == "contract_review_rules"
+    assert result["planner_source"] == "guardrail"
+    assert result["tool_calls"][0]["name"] == "contract_review_rules"
+
+
+def test_guardrail_treats_raw_contract_text_as_contract_review() -> None:
+    result = agent_graph.guardrail_node(
+        {
+            "query": (
+                "合同期限为三年。试用期三个月。工资为每月八千元。"
+                "执行标准工时。公司依法缴纳社会保险。"
+            )
+        }
+    )
+
+    assert result["intent"] == "contract_review"
+    assert result["tool_calls"][0]["name"] == "contract_review_rules"
+
+
+def test_tool_executor_records_multi_tool_trace() -> None:
+    original_law_tool = agent_graph.search_law_articles
+    original_policy_tool = agent_graph.search_company_policy
+    agent_graph.search_law_articles = lambda query: {
+        "answer": f"{query} - 法律答案",
+        "citations": ["法律依据"],
+        "contexts": ["法律依据"],
+        "route": "law_qa",
+        "result_type": "law_qa",
+    }
+    agent_graph.search_company_policy = lambda query: {
+        "answer": f"{query} - 制度答案",
+        "citations": ["制度依据"],
+        "contexts": ["制度依据"],
+        "route": "policy_qa",
+        "result_type": "policy_qa",
+    }
+    try:
+        executed = agent_graph.tool_executor_node(
+            {
+                "query": "公司制度写加班要审批，那法律上还能拒绝加班费吗？",
+                "tool_calls": [
+                    {
+                        "name": "search_company_policy",
+                        "args": {"query": "加班审批制度"},
+                    },
+                    {
+                        "name": "search_law_articles",
+                        "args": {"query": "加班费法律规定"},
+                    },
+                ],
+            }
+        )
+        result = agent_graph.answer_node({**executed, "query": "混合问题"})
+    finally:
+        agent_graph.search_law_articles = original_law_tool
+        agent_graph.search_company_policy = original_policy_tool
+
+    assert result["intent"] == "compliance_qa"
+    assert result["route"] == "compliance_qa"
+    assert result["result_type"] == "compliance_qa"
+    assert result["tools_used"] == ["search_company_policy", "search_law_articles"]
+    assert [trace["name"] for trace in result["tool_trace"]] == [
+        "search_company_policy",
+        "search_law_articles",
+    ]
+    assert result["citations"] == ["制度依据", "法律依据"]
+
+
+def test_planner_falls_back_to_classifier_when_llm_fails() -> None:
+    original_planner = agent_graph.plan_tools_with_llm
+
+    def failing_planner(*_, **__):
+        raise RuntimeError("planner unavailable")
+
+    agent_graph.plan_tools_with_llm = failing_planner
+    try:
+        result = agent_graph.tool_planner_node(
+            {
+                "query": "试用期最长多久？",
+                "intent": "law_qa",
+                "allowed_tools": agent_graph.PUBLIC_TOOL_NAMES,
+            }
+        )
+    finally:
+        agent_graph.plan_tools_with_llm = original_planner
+
+    assert result["planner_source"] == "fallback"
+    assert result["tool_calls"] == [
+        {"name": "search_law_articles", "args": {"query": "试用期最长多久？"}}
+    ]
+
+
 if __name__ == "__main__":
     test_policy_router_prefers_company_document_hints()
     test_policy_router_uses_internal_policy_hint_without_llm()
@@ -152,4 +250,8 @@ if __name__ == "__main__":
     test_policy_node_selects_policy_tool()
     test_contract_node_selects_contract_review_tool()
     test_refusal_node_marks_result_as_refused()
+    test_guardrail_forces_contract_review_tool()
+    test_guardrail_treats_raw_contract_text_as_contract_review()
+    test_tool_executor_records_multi_tool_trace()
+    test_planner_falls_back_to_classifier_when_llm_fails()
     print("agent graph ok")

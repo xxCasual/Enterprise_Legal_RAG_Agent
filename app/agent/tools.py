@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from langchain_core.tools import StructuredTool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
@@ -11,6 +12,14 @@ from langchain_openai import ChatOpenAI
 from app.core.config import settings
 from app.services.document_service import document_service
 from app.services.rag_service import rag_service
+
+
+TOOL_DESCRIPTIONS = {
+    "search_law_articles": "检索中国劳动相关法律法规，并回答法律问答或法律依据问题。",
+    "search_company_policy": "检索企业上传的内部制度、员工手册、考勤、请假、报销或审批规则。",
+    "contract_review_rules": "审查劳动合同文本，识别试用期、工资、工时、社保、解除、竞业限制等条款风险。",
+    "refuse_out_of_scope": "当问题超出中国劳动合规、企业制度或劳动合同审查范围时，生成拒答。",
+}
 
 
 def search_law_articles(query: str) -> Dict[str, Any]:
@@ -97,6 +106,10 @@ def review_labor_contract(
     }
 
 
+def contract_review_rules(contract_text: str) -> Dict[str, Any]:
+    return review_labor_contract(contract_text, include_evidence=False)
+
+
 def refuse_out_of_scope(query: str) -> Dict[str, Any]:
     answer = (
         "超出范围，无法提供该请求的帮助。这个系统只能回答中国劳动合规、企业制度和劳动合同审查相关问题。"
@@ -110,6 +123,31 @@ def refuse_out_of_scope(query: str) -> Dict[str, Any]:
         "result_type": "refusal",
         "refused": True,
     }
+
+
+def registered_agent_tools() -> List[StructuredTool]:
+    return [
+        StructuredTool.from_function(
+            func=search_law_articles,
+            name="search_law_articles",
+            description=TOOL_DESCRIPTIONS["search_law_articles"],
+        ),
+        StructuredTool.from_function(
+            func=search_company_policy,
+            name="search_company_policy",
+            description=TOOL_DESCRIPTIONS["search_company_policy"],
+        ),
+        StructuredTool.from_function(
+            func=contract_review_rules,
+            name="contract_review_rules",
+            description=TOOL_DESCRIPTIONS["contract_review_rules"],
+        ),
+        StructuredTool.from_function(
+            func=refuse_out_of_scope,
+            name="refuse_out_of_scope",
+            description=TOOL_DESCRIPTIONS["refuse_out_of_scope"],
+        ),
+    ]
 
 
 def _contract_review_answer(result: Dict[str, Any]) -> str:

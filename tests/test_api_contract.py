@@ -32,6 +32,13 @@ def test_chat_contract_without_loading_rag() -> None:
             "route": "law_qa",
             "intent": "law_qa",
             "tools_used": ["search_law_articles"],
+            "tool_trace": [
+                {
+                    "name": "search_law_articles",
+                    "status": "ok",
+                    "latency": 0.01,
+                }
+            ],
             "result_type": "law_qa",
             "latency": 0.01,
         }
@@ -47,6 +54,7 @@ def test_chat_contract_without_loading_rag() -> None:
     assert response.route == "law_qa"
     assert response.intent == "law_qa"
     assert response.tools_used == ["search_law_articles"]
+    assert response.tool_trace[0]["name"] == "search_law_articles"
     assert response.result_type == "law_qa"
     assert response.latency == 0.01
 
@@ -179,6 +187,29 @@ def test_review_api_contracts() -> None:
     assert approved.final_answer["risk_level"] == "high"
     assert rejected.status == "rejected"
     assert rejected.final_answer is None
+
+
+def test_openapi_uses_chinese_metadata_tags_and_contract_examples() -> None:
+    api_main.app.openapi_schema = None
+    schema = api_main.app.openapi()
+
+    assert schema["info"]["title"] == "企业劳动合规 RAG 与审查平台"
+    assert "人工审查" in schema["info"]["description"]
+
+    tag_names = [tag["name"] for tag in schema["tags"]]
+    assert tag_names == ["系统状态", "统一问答", "合同审查", "人工审批", "企业制度"]
+
+    contract_post = schema["paths"]["/api/review/contract"]["post"]
+    assert contract_post["summary"] == "审查劳动合同"
+    assert contract_post["tags"] == ["合同审查"]
+
+    examples = contract_post["requestBody"]["content"]["application/json"]["examples"]
+    assert "high_risk_contract" in examples
+    assert "放弃社保" in examples["high_risk_contract"]["value"]["contract_text"]
+
+    pending_get = schema["paths"]["/api/reviews/pending"]["get"]
+    assert pending_get["tags"] == ["人工审批"]
+    assert "待人工复核" in pending_get["summary"]
 
 
 if __name__ == "__main__":

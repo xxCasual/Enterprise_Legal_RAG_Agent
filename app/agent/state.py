@@ -10,6 +10,12 @@ class AgentState(TypedDict, total=False):
     intent: str
     intent_source: str
     intent_confidence: float
+    planner_source: str
+    allowed_tools: List[str]
+    forced_tool: str | None
+    tool_calls: List[Dict[str, Any]]
+    tool_results: List[Dict[str, Any]]
+    tool_trace: List[Dict[str, Any]]
     route: str
     result_type: str
     answer: str
