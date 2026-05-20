@@ -64,6 +64,10 @@ def execute_tool_state(
                 trace["risk_level"] = payload.get("risk_level")
             if payload.get("review_status") is not None:
                 trace["review_status"] = payload.get("review_status")
+            if payload.get("answer_source") is not None:
+                trace["answer_source"] = payload.get("answer_source")
+            if payload.get("context_count") is not None:
+                trace["context_count"] = payload.get("context_count")
         except Exception as exc:
             tool_results.append(
                 {

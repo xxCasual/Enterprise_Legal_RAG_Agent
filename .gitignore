@@ -7,6 +7,10 @@ dist/
 build/
 *.egg
 
+# Node / frontend
+node_modules/
+*.tsbuildinfo
+
 # 虚拟环境
 venv/
 env/

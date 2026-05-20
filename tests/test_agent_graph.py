@@ -10,6 +10,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import app.agent.graph as agent_graph  # noqa: E402
+import app.agent.tools as agent_tools  # noqa: E402
+from app.services.document_service import PolicyChunk  # noqa: E402
 
 
 def test_policy_router_prefers_company_document_hints() -> None:
@@ -107,6 +109,134 @@ def test_policy_node_selects_policy_tool() -> None:
     assert result["route"] == "policy_qa"
 
 
+def test_company_policy_tool_marks_no_context_without_llm() -> None:
+    original_document_service = agent_tools.document_service
+    agent_tools.document_service = type(
+        "FakeDocumentService",
+        (),
+        {"search": lambda self, query, k=4: []},
+    )()
+    try:
+        result = agent_tools.search_company_policy("公司的远程办公制度是什么？")
+    finally:
+        agent_tools.document_service = original_document_service
+
+    assert result["answer_source"] == "no_context"
+    assert result["context_count"] == 0
+    assert result["answer"] == "当前企业制度文档中未检索到相关依据。"
+
+
+def test_company_policy_tool_uses_retrieval_fallback_without_api_key() -> None:
+    original_document_service = agent_tools.document_service
+    original_settings = agent_tools.settings
+    agent_tools.document_service = type(
+        "FakeDocumentService",
+        (),
+        {
+            "search": lambda self, query, k=4: [
+                PolicyChunk(
+                    page_content="员工连续迟到三次，公司可给予书面提醒。",
+                    metadata={"file_name": "handbook.md"},
+                ),
+                PolicyChunk(
+                    page_content="工资发放日为每月十日，如遇节假日顺延。",
+                    metadata={"file_name": "payroll.md"},
+                ),
+            ]
+        },
+    )()
+    agent_tools.settings = type(
+        "FakeSettings",
+        (),
+        {
+            "deepseek_api_key": None,
+            "llm_model": "deepseek-chat",
+            "deepseek_base_url": "https://api.deepseek.com",
+        },
+    )()
+    try:
+        result = agent_tools.search_company_policy("迟到三次怎么处理？")
+    finally:
+        agent_tools.document_service = original_document_service
+        agent_tools.settings = original_settings
+
+    assert result["answer_source"] == "retrieval_fallback"
+    assert result["context_count"] == 2
+    assert "以下为检索到的企业制度片段" in result["answer"]
+    assert "员工连续迟到三次" in result["answer"]
+
+
+def test_company_policy_tool_uses_retrieval_fallback_when_llm_errors() -> None:
+    original_document_service = agent_tools.document_service
+    original_settings = agent_tools.settings
+    original_llm = agent_tools.ChatOpenAI
+    agent_tools.document_service = type(
+        "FakeDocumentService",
+        (),
+        {
+            "search": lambda self, query, k=4: [
+                PolicyChunk(
+                    page_content="年假申请应至少提前三个工作日提交。",
+                    metadata={"file_name": "leave.md"},
+                )
+            ]
+        },
+    )()
+    agent_tools.settings = type(
+        "FakeSettings",
+        (),
+        {
+            "deepseek_api_key": "sk-test",
+            "llm_model": "deepseek-chat",
+            "deepseek_base_url": "https://api.deepseek.com",
+        },
+    )()
+
+    class FailingChatOpenAI:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("llm unavailable")
+
+    agent_tools.ChatOpenAI = FailingChatOpenAI
+    try:
+        result = agent_tools.search_company_policy("年假要提前多久申请？")
+    finally:
+        agent_tools.document_service = original_document_service
+        agent_tools.settings = original_settings
+        agent_tools.ChatOpenAI = original_llm
+
+    assert result["answer_source"] == "retrieval_fallback"
+    assert result["context_count"] == 1
+    assert "年假申请应至少提前三个工作日提交" in result["answer"]
+
+
+def test_tool_executor_records_policy_fallback_metadata_in_trace() -> None:
+    original_policy_tool = agent_graph.search_company_policy
+    agent_graph.search_company_policy = lambda query: {
+        "answer": "以下为检索到的企业制度片段：\n1. 迟到三次记一次书面提醒。",
+        "citations": ["迟到三次记一次书面提醒。"],
+        "contexts": ["迟到三次记一次书面提醒。"],
+        "route": "policy_qa",
+        "result_type": "policy_qa",
+        "answer_source": "retrieval_fallback",
+        "context_count": 1,
+    }
+    try:
+        result = agent_graph.tool_executor_node(
+            {
+                "query": "迟到三次怎么处理？",
+                "tool_calls": [
+                    {"name": "search_company_policy", "args": {"query": "迟到三次"}}
+                ],
+            }
+        )
+    finally:
+        agent_graph.search_company_policy = original_policy_tool
+
+    assert result["tool_results"][0]["status"] == "ok"
+    assert result["tool_trace"][0]["answer_source"] == "retrieval_fallback"
+    assert result["tool_trace"][0]["context_count"] == 1
+
+
 def test_contract_node_selects_contract_review_tool() -> None:
     original_tool = agent_graph.review_labor_contract
     agent_graph.review_labor_contract = lambda query: {
@@ -181,6 +311,8 @@ def test_tool_executor_records_multi_tool_trace() -> None:
         "contexts": ["制度依据"],
         "route": "policy_qa",
         "result_type": "policy_qa",
+        "answer_source": "retrieval_fallback",
+        "context_count": 1,
     }
     try:
         executed = agent_graph.tool_executor_node(
@@ -211,6 +343,8 @@ def test_tool_executor_records_multi_tool_trace() -> None:
         "search_company_policy",
         "search_law_articles",
     ]
+    assert result["tool_trace"][0]["answer_source"] == "retrieval_fallback"
+    assert result["tool_trace"][0]["context_count"] == 1
     assert result["citations"] == ["制度依据", "法律依据"]
 
 

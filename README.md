@@ -54,6 +54,28 @@ uvicorn app.main:app --reload
 - `GET http://127.0.0.1:8000/api/health`
 - `POST http://127.0.0.1:8000/api/chat`
 
+## 前端控制台
+
+前端位于 `frontend/`，使用 React + Vite + TypeScript。开发时先启动 FastAPI，再启动 Vite；Vite 会把 `/api` 代理到 `http://127.0.0.1:8000`。
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+默认前端地址：
+
+- `http://127.0.0.1:5173`
+
+常用检查命令：
+
+```bash
+cd frontend
+npm run typecheck
+npm run build
+```
+
 ## 配置
 
 最少需要配置：
@@ -93,6 +115,8 @@ uvicorn app.main:app --reload
 - `refuse_out_of_scope`
 
 当一个问题同时比较法律要求和企业制度时，返回 `intent/route/result_type = compliance_qa`，并在 `tools_used` 中记录多个工具。API 响应保留 `tools_used` 摘要，同时新增 `tool_trace` 方便调试每次工具调用的名称、参数摘要、状态和耗时。
+
+企业制度问答会优先使用 LLM 根据检索到的制度片段生成答案。如果 DeepSeek API key 未配置、LLM 超时或调用异常，`search_company_policy` 会返回基于命中制度片段的确定性保底答案，并标记 `answer_source = retrieval_fallback`；没有命中制度片段时标记 `answer_source = no_context`。这些信息会透传到 `tool_trace`，便于区分 LLM 答案、检索保底答案和无上下文结果。
 
 DeepSeek function calling 参考：[DeepSeek Function Calling](https://api-docs.deepseek.com/guides/function_calling)。
 

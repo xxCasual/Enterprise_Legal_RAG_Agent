@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from pydantic import ValidationError
+from starlette.middleware.cors import CORSMiddleware
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -37,6 +38,8 @@ def test_chat_contract_without_loading_rag() -> None:
                     "name": "search_law_articles",
                     "status": "ok",
                     "latency": 0.01,
+                    "answer_source": "llm",
+                    "context_count": 2,
                 }
             ],
             "result_type": "law_qa",
@@ -55,6 +58,8 @@ def test_chat_contract_without_loading_rag() -> None:
     assert response.intent == "law_qa"
     assert response.tools_used == ["search_law_articles"]
     assert response.tool_trace[0]["name"] == "search_law_articles"
+    assert response.tool_trace[0]["answer_source"] == "llm"
+    assert response.tool_trace[0]["context_count"] == 2
     assert response.result_type == "law_qa"
     assert response.latency == 0.01
 
@@ -212,6 +217,19 @@ def test_openapi_uses_chinese_metadata_tags_and_contract_examples() -> None:
     assert "待人工复核" in pending_get["summary"]
 
 
+def test_app_allows_vite_dev_origins_for_frontend_proxy() -> None:
+    cors_middleware = [
+        middleware
+        for middleware in api_main.app.user_middleware
+        if middleware.cls is CORSMiddleware
+    ]
+
+    assert len(cors_middleware) == 1
+    origins = cors_middleware[0].kwargs["allow_origins"]
+    assert "http://localhost:5173" in origins
+    assert "http://127.0.0.1:5173" in origins
+
+
 if __name__ == "__main__":
     test_health_contract()
     test_chat_contract_without_loading_rag()
@@ -219,4 +237,5 @@ if __name__ == "__main__":
     test_contract_review_contract_without_loading_rag()
     test_contract_review_rejects_blank_text()
     test_review_api_contracts()
+    test_app_allows_vite_dev_origins_for_frontend_proxy()
     print("api contract ok")

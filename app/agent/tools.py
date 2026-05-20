@@ -36,13 +36,15 @@ def search_law_articles(query: str) -> Dict[str, Any]:
 def search_company_policy(query: str) -> Dict[str, Any]:
     docs = document_service.search(query, k=4)
     contexts = [doc.page_content for doc in docs]
-    answer = _answer_policy_question(query, contexts)
+    answer, answer_source = _answer_policy_question(query, contexts)
     return {
         "answer": answer,
         "citations": contexts,
         "route": "policy_qa",
         "contexts": contexts,
         "result_type": "policy_qa",
+        "answer_source": answer_source,
+        "context_count": len(contexts),
     }
 
 
@@ -180,9 +182,12 @@ def _contract_review_pending_payload(contract_text: str, result: Dict[str, Any])
     }
 
 
-def _answer_policy_question(query: str, contexts: List[str]) -> str:
+def _answer_policy_question(query: str, contexts: List[str]) -> tuple[str, str]:
     if not contexts:
-        return "当前企业制度文档中未检索到相关依据。"
+        return "当前企业制度文档中未检索到相关依据。", "no_context"
+
+    if not settings.deepseek_api_key:
+        return _fallback_policy_answer(contexts), "retrieval_fallback"
 
     prompt = ChatPromptTemplate.from_template(
         """你是企业劳动合规助手。请严格根据以下企业制度文档回答问题。
@@ -197,17 +202,41 @@ def _answer_policy_question(query: str, contexts: List[str]) -> str:
 
 用户问题：{question}"""
     )
-    llm = ChatOpenAI(
-        model=settings.llm_model,
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
-        timeout=30,
-        max_retries=0,
+    try:
+        llm = ChatOpenAI(
+            model=settings.llm_model,
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url,
+            timeout=30,
+            max_retries=0,
+        )
+        chain = prompt | llm | StrOutputParser()
+        return (
+            chain.invoke(
+                {
+                    "context": "\n\n".join(contexts),
+                    "question": query,
+                }
+            ),
+            "llm",
+        )
+    except Exception:
+        return _fallback_policy_answer(contexts), "retrieval_fallback"
+
+
+def _fallback_policy_answer(contexts: List[str]) -> str:
+    snippets = [
+        f"{index}. {_truncate_policy_context(context)}"
+        for index, context in enumerate(contexts[:4], start=1)
+        if context.strip()
+    ]
+    if not snippets:
+        return "当前企业制度文档中未检索到相关依据。"
+    return "以下为检索到的企业制度片段，请以企业制度原文为准：\n" + "\n".join(
+        snippets
     )
-    chain = prompt | llm | StrOutputParser()
-    return chain.invoke(
-        {
-            "context": "\n\n".join(contexts),
-            "question": query,
-        }
-    )
+
+
+def _truncate_policy_context(context: str, limit: int = 240) -> str:
+    text = " ".join(context.split())
+    return text if len(text) <= limit else f"{text[:limit]}..."
