@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
@@ -61,7 +61,7 @@ class DocumentService:
                 "file_name": safe_name,
                 "source_type": source_type,
                 "chunk_count": len(chunks),
-                "created_at": datetime.now(UTC).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }
             records = self._load_registry()
             records.append(record)

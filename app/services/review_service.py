@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List
@@ -131,7 +131,7 @@ class ReviewService:
         )
 
     def _now(self) -> str:
-        return datetime.now(UTC).isoformat()
+        return datetime.now(timezone.utc).isoformat()
 
 
 review_service = ReviewService()
