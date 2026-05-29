@@ -5,14 +5,18 @@ import type {
   DocumentRecord,
   HealthResponse,
   PendingReviewListResponse,
+  ReadyResponse,
   ReviewDecision,
   ReviewDecisionResponse
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+const API_TOKEN = import.meta.env.VITE_API_AUTH_TOKEN ?? "";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, init);
+  const headers = new Headers(init?.headers);
+  if (API_TOKEN) headers.set("X-API-Key", API_TOKEN);
+  const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const text = await response.text();
   const payload = text ? safeParseJson(text) : {};
 
@@ -44,6 +48,10 @@ function getErrorDetail(payload: unknown, fallback: string): string {
 
 export function checkHealth(): Promise<HealthResponse> {
   return requestJson<HealthResponse>("/api/health");
+}
+
+export function checkReady(): Promise<ReadyResponse> {
+  return requestJson<ReadyResponse>("/api/ready");
 }
 
 export function sendChat(query: string): Promise<ChatResponse> {

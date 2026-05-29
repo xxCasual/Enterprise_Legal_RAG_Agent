@@ -20,6 +20,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  checkReady,
   checkHealth,
   decideReview,
   listDocuments,
@@ -35,6 +36,7 @@ import type {
   DocumentRecord,
   LoadingKey,
   PendingReviewRecord,
+  ReadyResponse,
   ReviewDecision,
   ReviewDecisionResponse,
   RiskLevel,
@@ -66,6 +68,7 @@ function App() {
   const [activeView, setActiveView] = useState<ViewId>("chat");
   const [loading, setLoadingState] = useState<Record<LoadingKey, boolean>>({
     health: false,
+    ready: false,
     chat: false,
     documents: false,
     upload: false,
@@ -74,6 +77,7 @@ function App() {
     approval: false
   });
   const [health, setHealth] = useState<HealthState>("unknown");
+  const [ready, setReady] = useState<ReadyResponse | null>(null);
   const [lastAction, setLastAction] = useState("等待操作");
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("试用期最长多久？");
@@ -102,6 +106,22 @@ function App() {
       setLastAction("健康检查失败");
     } finally {
       setLoading("health", false);
+    }
+  }, [setLoading]);
+
+  const runReady = useCallback(async () => {
+    setLoading("ready", true);
+    setError(null);
+    try {
+      const payload = await checkReady();
+      setReady(payload);
+      setLastAction(`生产依赖：${payload.status}`);
+    } catch (err) {
+      setReady(null);
+      setError(errorMessage(err));
+      setLastAction("生产依赖检查失败");
+    } finally {
+      setLoading("ready", false);
     }
   }, [setLoading]);
 
@@ -137,9 +157,10 @@ function App() {
 
   useEffect(() => {
     runHealth();
+    runReady();
     refreshDocuments();
     refreshReviews();
-  }, [refreshDocuments, refreshReviews, runHealth]);
+  }, [refreshDocuments, refreshReviews, runHealth, runReady]);
 
   const runChat = async (forcedQuery?: string) => {
     const finalQuery = (forcedQuery ?? query).trim();
@@ -229,6 +250,10 @@ function App() {
     () => documents.reduce((sum, doc) => sum + doc.chunk_count, 0),
     [documents]
   );
+  const activeIndexingDocs = useMemo(
+    () => documents.filter((doc) => doc.status === "pending" || doc.status === "indexing").length,
+    [documents]
+  );
 
   return (
     <div className="shell">
@@ -278,6 +303,7 @@ function App() {
           <div className="head-metrics">
             <Metric label="文档" value={documents.length} />
             <Metric label="Chunks" value={totalChunks} />
+            <Metric label="索引中" value={activeIndexingDocs} tone={activeIndexingDocs ? "warn" : "neutral"} />
             <Metric label="待审" value={reviews.length} tone={reviews.length ? "warn" : "neutral"} />
           </div>
         </header>
@@ -334,10 +360,13 @@ function App() {
         {activeView === "status" ? (
           <StatusView
             health={health}
+            ready={ready}
             loading={loading.health}
+            readyLoading={loading.ready}
             documents={documents}
             reviews={reviews}
             onRefreshHealth={runHealth}
+            onRefreshReady={runReady}
             onRefreshDocuments={refreshDocuments}
             onRefreshReviews={refreshReviews}
           />
@@ -460,9 +489,10 @@ function DocumentsView({ documents, loading, fileInputRef, onRefresh, onUpload }
 }
 
 function DocumentItem({ document }: { document: DocumentRecord }) {
+  const statusTone = document.status === "ready" ? "ok" : document.status === "failed" ? "danger" : "warn";
   return (
     <article className="list-item">
-      <div className="item-icon">
+      <div className={`item-icon ${statusTone}`}>
         <FileText size={18} aria-hidden="true" />
       </div>
       <div>
@@ -472,6 +502,12 @@ function DocumentItem({ document }: { document: DocumentRecord }) {
           <span>{document.chunk_count} chunks</span>
           <span>{formatDate(document.created_at)}</span>
         </div>
+        <div className="meta-grid document-status">
+          <StatusPill label="status" value={document.status} tone={statusTone} />
+          <StatusPill label="task" value={document.task_id} />
+          <StatusPill label="indexed" value={document.indexed_at ? formatDate(document.indexed_at) : null} />
+        </div>
+        {document.error_message ? <p className="trace-error">{document.error_message}</p> : null}
       </div>
     </article>
   );
@@ -618,23 +654,30 @@ function DecisionResult({ result }: { result: ReviewDecisionResponse }) {
 
 interface StatusViewProps {
   health: HealthState;
+  ready: ReadyResponse | null;
   loading: boolean;
+  readyLoading: boolean;
   documents: DocumentRecord[];
   reviews: PendingReviewRecord[];
   onRefreshHealth: () => void;
+  onRefreshReady: () => void;
   onRefreshDocuments: () => void;
   onRefreshReviews: () => void;
 }
 
 function StatusView({
   health,
+  ready,
   loading,
+  readyLoading,
   documents,
   reviews,
   onRefreshHealth,
+  onRefreshReady,
   onRefreshDocuments,
   onRefreshReviews
 }: StatusViewProps) {
+  const dependencies = Object.entries(ready?.dependencies ?? {});
   return (
     <section className="status-grid">
       <StatusTile
@@ -645,6 +688,15 @@ function StatusView({
         actionLabel="刷新"
         loading={loading}
         onAction={onRefreshHealth}
+      />
+      <StatusTile
+        icon={Gauge}
+        label="Ready"
+        value={ready?.status ?? "unknown"}
+        tone={readyTone(ready?.status)}
+        actionLabel="检查"
+        loading={readyLoading}
+        onAction={onRefreshReady}
       />
       <StatusTile
         icon={FileArchive}
@@ -662,6 +714,19 @@ function StatusView({
         actionLabel="刷新"
         onAction={onRefreshReviews}
       />
+      {dependencies.map(([name, dependency]) => (
+        <StatusTile
+          key={name}
+          icon={dependency.status === "ok" ? CheckCircle2 : dependency.status === "error" ? XCircle : AlertTriangle}
+          label={name}
+          value={dependency.status}
+          detail={dependency.detail}
+          tone={readyTone(dependency.status)}
+          actionLabel="检查"
+          loading={readyLoading}
+          onAction={onRefreshReady}
+        />
+      ))}
     </section>
   );
 }
@@ -670,6 +735,7 @@ function StatusTile({
   icon: Icon,
   label,
   value,
+  detail,
   tone,
   actionLabel,
   loading,
@@ -678,6 +744,7 @@ function StatusTile({
   icon: LucideIcon;
   label: string;
   value: string;
+  detail?: string;
   tone: "ok" | "warn" | "danger" | "neutral";
   actionLabel: string;
   loading?: boolean;
@@ -691,6 +758,7 @@ function StatusTile({
       <div>
         <p>{label}</p>
         <strong>{value}</strong>
+        {detail ? <span className="status-detail">{detail}</span> : null}
       </div>
       <button type="button" disabled={loading} onClick={onAction}>
         {loading ? <Loader2 className="spin" size={16} aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}
@@ -894,6 +962,13 @@ function ReviewPill({ status, reviewId }: { status: string | null; reviewId: str
       {reviewId ? <StatusPill label="review_id" value={reviewId} /> : null}
     </>
   );
+}
+
+function readyTone(status: string | null | undefined): "ok" | "warn" | "danger" | "neutral" {
+  if (status === "ok" || status === "not_configured") return "ok";
+  if (status === "error") return "danger";
+  if (status === "degraded") return "warn";
+  return "neutral";
 }
 
 function StatusPill({

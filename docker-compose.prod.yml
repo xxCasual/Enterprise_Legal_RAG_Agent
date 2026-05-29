@@ -1,0 +1,133 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://legal_rag:legal_rag@postgres:5432/legal_rag
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      LEGAL_RAG_UPLOADS_DIR: /app/storage/uploads
+      LEGAL_RAG_LLAMA_LAW_CHROMA_DIR: /app/chroma_llama_law
+      LEGAL_RAG_LLAMA_COMPANY_CHROMA_DIR: /app/chroma_llama_company
+      CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      HF_HOME: /app/.cache/huggingface
+      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-1}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-1}
+      LEGAL_RAG_EMBEDDING_MODEL: ${LEGAL_RAG_EMBEDDING_MODEL:-/models/hf-hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181}
+      LEGAL_RAG_RERANKER_MODEL: ${LEGAL_RAG_RERANKER_MODEL:-off}
+    volumes:
+      - uploads:/app/storage/uploads
+      - law_index:/app/chroma_llama_law
+      - company_index:/app/chroma_llama_company
+      - hf_cache:/app/.cache/huggingface
+      - ${LOCAL_HF_HUB:-/Users/xxcasual/.cache/huggingface/hub}:/models/hf-hub:ro
+      - ${LOCAL_BGE_M3_MODEL_DIR:-/Users/xxcasual/.hermes/profiles/chat/home/.cache/huggingface/hub/models--BAAI--bge-m3}:/models/hf-hub/models--BAAI--bge-m3:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m app.worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://legal_rag:legal_rag@postgres:5432/legal_rag
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      LEGAL_RAG_UPLOADS_DIR: /app/storage/uploads
+      LEGAL_RAG_LLAMA_COMPANY_CHROMA_DIR: /app/chroma_llama_company
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      HF_HOME: /app/.cache/huggingface
+      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-1}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-1}
+      LEGAL_RAG_EMBEDDING_MODEL: ${LEGAL_RAG_EMBEDDING_MODEL:-/models/hf-hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181}
+      LEGAL_RAG_RERANKER_MODEL: ${LEGAL_RAG_RERANKER_MODEL:-off}
+    volumes:
+      - uploads:/app/storage/uploads
+      - company_index:/app/chroma_llama_company
+      - hf_cache:/app/.cache/huggingface
+      - ${LOCAL_HF_HUB:-/Users/xxcasual/.cache/huggingface/hub}:/models/hf-hub:ro
+      - ${LOCAL_BGE_M3_MODEL_DIR:-/Users/xxcasual/.hermes/profiles/chat/home/.cache/huggingface/hub/models--BAAI--bge-m3}:/models/hf-hub/models--BAAI--bge-m3:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+        VITE_API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: legal_rag
+      POSTGRES_USER: legal_rag
+      POSTGRES_PASSWORD: legal_rag
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legal_rag -d legal_rag"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  chroma:
+    image: chromadb/chroma:1.5.9
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+    ports:
+      - "8001:8000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:
+  uploads:
+  law_index:
+  company_index:
+  hf_cache:

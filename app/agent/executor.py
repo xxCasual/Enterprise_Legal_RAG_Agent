@@ -14,6 +14,7 @@ from app.agent.tools import (
     search_company_policy,
     search_law_articles,
 )
+from app.core.observability import metrics
 
 
 ToolExecutor = Callable[[str, Dict[str, Any], str], Dict[str, Any]]
@@ -82,6 +83,8 @@ def execute_tool_state(
             trace["error"] = f"{type(exc).__name__}: {exc}"
         finally:
             trace["latency"] = round(time.perf_counter() - started_at, 3)
+            metrics.increment("tool_calls_total")
+            metrics.observe("tool_call_duration_seconds", trace["latency"])
             tool_trace.append(trace)
 
     return {

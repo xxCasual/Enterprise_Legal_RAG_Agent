@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
 from app.core.config import settings
+from app.core.observability import metrics
 
 
 VALID_CRAG_MODES = {"llm", "reranker", "off"}
@@ -121,8 +122,8 @@ class LlamaIndexLegalRAGPipeline:
             api_key=self.api_key,
             api_base=settings.deepseek_base_url,
             is_chat_model=True,
-            timeout=30,
-            max_retries=0,
+            timeout=self.llm_timeout_seconds,
+            max_retries=2,
         )
         self.llm = Settings.llm
 
@@ -141,14 +142,14 @@ class LlamaIndexLegalRAGPipeline:
         return nodes
 
     def _build_or_load_index(self, rebuild_index: bool) -> Any:
-        import chromadb
         from llama_index.core import StorageContext, VectorStoreIndex
         from llama_index.vector_stores.chroma import ChromaVectorStore
+        from app.rag.chroma_client import create_chroma_client
 
         if rebuild_index and self.persist_dir.exists():
             shutil.rmtree(self.persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
-        client = chromadb.PersistentClient(path=str(self.persist_dir))
+        client = create_chroma_client(self.persist_dir)
         collection = client.get_or_create_collection(self.LAW_COLLECTION)
         vector_store = ChromaVectorStore(chroma_collection=collection)
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
@@ -182,6 +183,10 @@ class LlamaIndexLegalRAGPipeline:
             )
 
     def _build_reranker(self) -> Any:
+        if self.reranker_model.strip().lower() in {"", "off", "none", "disabled"}:
+            self._log("⚪ 跳过 reranker")
+            return None
+
         from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
 
         return SentenceTransformerRerank(
@@ -345,6 +350,7 @@ class LlamaIndexLegalRAGPipeline:
         try:
             return self._complete(prompt).strip()
         except Exception as exc:
+            metrics.increment("llm_failures_total")
             self._log(f"⚠️ LLM 调用失败，使用降级结果: {type(exc).__name__}: {exc}")
             return fallback
 

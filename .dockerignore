@@ -1,0 +1,16 @@
+.git
+.env
+venv
+env
+__pycache__
+*.pyc
+frontend/node_modules
+frontend/dist
+storage
+chroma_db
+chroma_company_docs
+chroma_llama_law
+chroma_llama_company
+.chroma
+data/eval/agent_results
+data/eval/results

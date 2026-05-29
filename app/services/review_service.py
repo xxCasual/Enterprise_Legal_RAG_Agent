@@ -9,7 +9,10 @@ from threading import Lock
 from typing import Any, Dict, List
 from uuid import uuid4
 
+from sqlalchemy import select
+
 from app.core.config import settings
+from app.core.database import ReviewRecordModel, session_scope
 
 
 PENDING_REVIEW = "pending_review"
@@ -134,4 +137,102 @@ class ReviewService:
         return datetime.now(timezone.utc).isoformat()
 
 
-review_service = ReviewService()
+class PostgresReviewService:
+    """Persist human review records in PostgreSQL through SQLAlchemy."""
+
+    def create_pending_review(
+        self,
+        source_type: str,
+        payload: Dict[str, Any],
+        final_answer: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        now = self._now()
+        record = ReviewRecordModel(
+            review_id=str(uuid4()),
+            source_type=source_type,
+            status=PENDING_REVIEW,
+            payload=payload,
+            final_answer=final_answer,
+            created_at=now,
+            updated_at=now,
+        )
+        with session_scope() as session:
+            session.add(record)
+            session.flush()
+            return self._public_record(record)
+
+    def list_pending_reviews(self) -> List[Dict[str, Any]]:
+        with session_scope() as session:
+            records = session.scalars(
+                select(ReviewRecordModel)
+                .where(ReviewRecordModel.status == PENDING_REVIEW)
+                .order_by(ReviewRecordModel.created_at.asc())
+            ).all()
+            return [self._public_record(record) for record in records]
+
+    def approve_review(self, review_id: str) -> Dict[str, Any]:
+        return self._decide_review(
+            review_id=review_id,
+            status=APPROVED,
+            message="审批通过，返回最终答案。",
+            include_final_answer=True,
+        )
+
+    def reject_review(self, review_id: str) -> Dict[str, Any]:
+        return self._decide_review(
+            review_id=review_id,
+            status=REJECTED,
+            message="审批拒绝，最终答案不予输出。",
+            include_final_answer=False,
+        )
+
+    def _decide_review(
+        self,
+        review_id: str,
+        status: str,
+        message: str,
+        include_final_answer: bool,
+    ) -> Dict[str, Any]:
+        with session_scope() as session:
+            statement = (
+                select(ReviewRecordModel)
+                .where(ReviewRecordModel.review_id == review_id)
+                .with_for_update()
+            )
+            record = session.scalars(statement).first()
+            if record is None:
+                raise ReviewNotFoundError(review_id)
+            if record.status != PENDING_REVIEW:
+                raise ReviewStateError(f"Review {review_id} is already {record.status}")
+            record.status = status
+            record.updated_at = self._now()
+            session.flush()
+            final_answer = record.final_answer if include_final_answer else None
+            return {
+                "review_id": record.review_id,
+                "status": record.status,
+                "final_answer": final_answer,
+                "message": message,
+            }
+
+    def _public_record(self, record: ReviewRecordModel) -> Dict[str, Any]:
+        return {
+            "review_id": record.review_id,
+            "source_type": record.source_type,
+            "status": record.status,
+            "payload": record.payload or {},
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+        }
+
+    def _now(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+
+def create_review_service() -> ReviewService | PostgresReviewService:
+    if settings.database_url:
+        return PostgresReviewService()
+    return ReviewService()
+
+
+review_service = create_review_service()

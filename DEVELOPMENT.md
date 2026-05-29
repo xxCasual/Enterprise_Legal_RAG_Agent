@@ -89,9 +89,8 @@ Vite 会把 `/api` 代理到 `http://127.0.0.1:8000`。
 
 ## 仓库边界
 
-- 本发布版本不包含 Docker 配置
-- 不包含本地 Chroma 数据、上传文件、模型缓存和历史评估结果
-- 当前没有引入 MySQL/Redis，状态存储仍是 Chroma + 本地 JSON
+- 包含生产化 Docker Compose 样例，但不提交真实 `.env`、本地 Chroma 数据、上传文件、模型缓存和历史评估结果
+- 本地开发默认仍可使用 Chroma + JSON fallback；配置 `DATABASE_URL`、`REDIS_URL`、`CHROMA_HOST` 后切换到 PostgreSQL、Redis worker 和 Chroma Server
 - 不包含旧实验目录 `experiments/`
 - 不包含历史兼容入口 `src/`
 

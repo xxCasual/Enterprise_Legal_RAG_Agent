@@ -13,6 +13,7 @@ from app.agent.intent_classifier import IntentClassifier
 from app.agent.state import AgentState
 from app.agent.tools import registered_agent_tools
 from app.core.config import settings
+from app.core.observability import metrics
 
 
 fallback_intent_classifier = IntentClassifier()
@@ -35,6 +36,7 @@ def build_tool_plan_state(state: AgentState, planner_func=None) -> AgentState:
                 "planner_source": "llm_tool_call",
             }
     except Exception:
+        metrics.increment("llm_failures_total")
         pass
 
     return {
@@ -64,7 +66,7 @@ def plan_tools_with_llm(
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
         timeout=settings.llm_timeout_seconds,
-        max_retries=0,
+        max_retries=2,
     ).bind_tools(tools)
     message = llm.invoke(
         [

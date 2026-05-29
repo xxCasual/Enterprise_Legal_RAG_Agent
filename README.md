@@ -60,7 +60,7 @@ LangGraph Agent
         +-- refuse_out_of_scope: 范围外拒答
 ```
 
-本项目当前没有引入 MySQL/Redis。企业制度索引用 Chroma，上传文档登记和人工审批队列用 `storage/*.json`。当需要多用户、权限、审计日志、并发审批或正式线上部署时，再迁移到 MySQL/PostgreSQL；Redis 更适合后续用于缓存、任务队列或流式状态。
+本项目保留本地 JSON 开发模式，同时提供生产化部署路径：配置 `DATABASE_URL` 后，上传文档登记、索引任务和人工审批队列会写入 PostgreSQL；配置 `REDIS_URL` 后，制度文档索引会进入后台 worker；配置 `CHROMA_HOST` 后，向量库使用 Chroma Server。详见 [PRODUCTION.md](PRODUCTION.md)。
 
 ## 项目结构
 
@@ -143,6 +143,20 @@ LEGAL_RAG_DOCUMENT_REGISTRY=storage/documents.json
 LEGAL_RAG_PENDING_REVIEWS=storage/pending_reviews.json
 LEGAL_RAG_LLAMA_LAW_CHROMA_DIR=chroma_llama_law
 LEGAL_RAG_LLAMA_COMPANY_CHROMA_DIR=chroma_llama_company
+```
+
+生产化配置：
+
+```env
+DATABASE_URL=postgresql+psycopg://legal_rag:legal_rag@postgres:5432/legal_rag
+REDIS_URL=redis://redis:6379/0
+CHROMA_HOST=chroma
+CHROMA_PORT=8000
+CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+MAX_UPLOAD_MB=20
+INDEXING_MAX_ATTEMPTS=3
+API_AUTH_TOKEN=change-me
+LOG_LEVEL=INFO
 ```
 
 `LEGAL_RAG_CRAG_MODE` 支持：

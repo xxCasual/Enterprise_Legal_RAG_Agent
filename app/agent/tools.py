@@ -10,6 +10,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
 
 from app.core.config import settings
+from app.core.observability import metrics
 from app.services.document_service import document_service
 from app.services.rag_service import rag_service
 
@@ -207,8 +208,8 @@ def _answer_policy_question(query: str, contexts: List[str]) -> tuple[str, str]:
             model=settings.llm_model,
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
-            timeout=30,
-            max_retries=0,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=2,
         )
         chain = prompt | llm | StrOutputParser()
         return (
@@ -221,6 +222,7 @@ def _answer_policy_question(query: str, contexts: List[str]) -> tuple[str, str]:
             "llm",
         )
     except Exception:
+        metrics.increment("llm_failures_total")
         return _fallback_policy_answer(contexts), "retrieval_fallback"
 
 

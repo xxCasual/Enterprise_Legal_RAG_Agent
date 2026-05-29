@@ -70,6 +70,27 @@ def test_md_ingest_and_list_documents() -> None:
         assert len(documents) == 1
         assert documents[0]["file_name"] == "handbook.md"
         assert documents[0]["source_type"] == "md"
+        assert documents[0]["status"] == "ready"
+
+
+def test_submit_upload_indexes_inline_without_redis() -> None:
+    with TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        vectorstore = _FakeVectorStore()
+        service = DocumentService(
+            uploads_dir=root / "uploads",
+            registry_path=root / "documents.json",
+            persist_dir=root / "chroma",
+        )
+        service._get_vectorstore = lambda: vectorstore  # type: ignore[method-assign]
+
+        record = service.submit_upload("policy.txt", "工资每月十日发放。".encode("utf-8"))
+
+        assert record["status"] == "ready"
+        assert record["task_id"]
+        assert record["indexed_at"]
+        assert record["chunk_count"] == len(vectorstore.documents)
+        assert service.status_counts()["ready"] == 1
 
 
 def test_unsupported_type_raises() -> None:
@@ -91,6 +112,7 @@ def test_document_service_defaults_to_llama_company_index_dir() -> None:
 if __name__ == "__main__":
     test_txt_ingest_persists_metadata()
     test_md_ingest_and_list_documents()
+    test_submit_upload_indexes_inline_without_redis()
     test_unsupported_type_raises()
     test_document_service_defaults_to_llama_company_index_dir()
     print("document service ok")

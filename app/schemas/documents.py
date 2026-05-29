@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,6 +13,13 @@ class DocumentRecord(BaseModel):
     source_type: str = Field(description="文档来源类型。")
     chunk_count: int = Field(..., ge=0, description="切分后的 chunk 数量。")
     created_at: str = Field(description="文档入库时间。")
+    status: Literal["pending", "indexing", "ready", "failed"] = Field(
+        default="ready",
+        description="文档索引状态。",
+    )
+    error_message: str | None = Field(default=None, description="索引失败原因。")
+    indexed_at: str | None = Field(default=None, description="索引完成时间。")
+    task_id: str | None = Field(default=None, description="后台索引任务 ID。")
 
 
 class DocumentUploadResponse(DocumentRecord):

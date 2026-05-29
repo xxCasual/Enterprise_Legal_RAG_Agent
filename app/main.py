@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
-from fastapi import Body, FastAPI, File, HTTPException, Path, UploadFile
+import json
+import logging
+import time
+from uuid import uuid4
+
+from fastapi import Body, Depends, FastAPI, File, HTTPException, Path, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app.agent import run_agent_chat
 from app.agent.tools import review_labor_contract
+from app.core.database import init_database
+from app.core.logging import configure_logging
+from app.core.observability import metrics
+from app.core.readiness import collect_readiness
+from app.core.security import require_admin_token
+from app.core.config import settings
 from app.schemas import (
     ChatRequest,
     ChatResponse,
@@ -20,6 +31,7 @@ from app.schemas import (
     HealthResponse,
     PendingReviewListResponse,
     PendingReviewRecord,
+    ReadyResponse,
     ReviewDecisionResponse,
 )
 from app.services.document_service import document_service
@@ -29,6 +41,9 @@ from app.services.review_service import (
     review_service,
 )
 
+
+configure_logging()
+logger = logging.getLogger("legal_rag.api")
 
 OPENAPI_TAGS = [
     {
@@ -87,16 +102,53 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+@app.on_event("startup")
+async def startup_event() -> None:
+    init_database()
+
+
+@app.middleware("http")
+async def request_observability_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    started_at = time.perf_counter()
+    response = None
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        latency = time.perf_counter() - started_at
+        metrics.increment("http_requests_total")
+        metrics.observe("http_request_duration_seconds", latency)
+        if response is not None:
+            response.headers["X-Request-ID"] = request_id
+        logger.info(
+            json.dumps(
+                {
+                    "event": "http_request",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": status_code,
+                    "latency": round(latency, 4),
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_, exc: Exception) -> JSONResponse:
-    payload = ErrorResponse(error="internal_error", detail=str(exc))
+    detail = str(exc) if settings.log_level == "DEBUG" else "Internal server error"
+    payload = ErrorResponse(error="internal_error", detail=detail)
     content = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
     return JSONResponse(status_code=500, content=content)
 
@@ -110,6 +162,27 @@ async def unhandled_exception_handler(_, exc: Exception) -> JSONResponse:
 )
 async def health() -> HealthResponse:
     return HealthResponse()
+
+
+@app.get(
+    "/api/ready",
+    response_model=ReadyResponse,
+    tags=["系统状态"],
+    summary="检查生产依赖状态",
+    description="检查数据库、Redis、Chroma、模型配置和文档索引状态。",
+)
+async def ready() -> ReadyResponse:
+    return ReadyResponse(**collect_readiness())
+
+
+@app.get(
+    "/api/metrics",
+    response_class=PlainTextResponse,
+    tags=["系统状态"],
+    summary="查看基础 Prometheus 指标",
+)
+async def metrics_endpoint() -> PlainTextResponse:
+    return PlainTextResponse(metrics.render_prometheus())
 
 
 @app.post(
@@ -198,7 +271,9 @@ async def review_contract(
     summary="查看待人工复核合同",
     description="返回当前所有待人工复核的高风险合同记录。",
 )
-async def list_pending_reviews() -> PendingReviewListResponse:
+async def list_pending_reviews(
+    _auth: None = Depends(require_admin_token),
+) -> PendingReviewListResponse:
     records = [
         PendingReviewRecord(**record) for record in review_service.list_pending_reviews()
     ]
@@ -213,7 +288,8 @@ async def list_pending_reviews() -> PendingReviewListResponse:
     description="审批通过后，系统会返回之前暂存的完整审查结果。",
 )
 async def approve_review(
-    review_id: str = Path(..., description="待人工复核记录的唯一标识")
+    review_id: str = Path(..., description="待人工复核记录的唯一标识"),
+    _auth: None = Depends(require_admin_token),
 ) -> ReviewDecisionResponse:
     try:
         result = review_service.approve_review(review_id)
@@ -232,7 +308,8 @@ async def approve_review(
     description="审批拒绝后，系统不会返回完整审查结果。",
 )
 async def reject_review(
-    review_id: str = Path(..., description="待人工复核记录的唯一标识")
+    review_id: str = Path(..., description="待人工复核记录的唯一标识"),
+    _auth: None = Depends(require_admin_token),
 ) -> ReviewDecisionResponse:
     try:
         result = review_service.reject_review(review_id)
@@ -250,13 +327,22 @@ async def reject_review(
     summary="上传企业制度文档",
     description="上传企业制度文档并建立可检索索引，供企业制度问答使用。",
 )
-async def upload_document(file: UploadFile = File(...)) -> DocumentUploadResponse:
+async def upload_document(
+    file: UploadFile = File(...),
+    _auth: None = Depends(require_admin_token),
+) -> DocumentUploadResponse:
     file_name = file.filename or "uploaded_document"
     content = await file.read()
     try:
-        record = document_service.ingest_upload(file_name, content)
+        submit_upload = getattr(document_service, "submit_upload", None) or getattr(
+            document_service,
+            "ingest_upload",
+        )
+        record = submit_upload(file_name, content)
     except NotImplementedError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return DocumentUploadResponse(**record)
 
 
@@ -267,6 +353,8 @@ async def upload_document(file: UploadFile = File(...)) -> DocumentUploadRespons
     summary="查看已上传制度文档",
     description="返回当前企业制度知识库中已登记的文档列表。",
 )
-async def list_documents() -> DocumentListResponse:
+async def list_documents(
+    _auth: None = Depends(require_admin_token),
+) -> DocumentListResponse:
     records = [DocumentRecord(**record) for record in document_service.list_documents()]
     return DocumentListResponse(documents=records)

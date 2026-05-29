@@ -1,9 +1,21 @@
 export type RiskLevel = "low" | "medium" | "high";
 export type ReviewStatus = "pending_review" | "approved" | "rejected";
 export type ReviewDecision = "approve" | "reject";
+export type DocumentStatus = "pending" | "indexing" | "ready" | "failed";
 
 export interface HealthResponse {
   status: string;
+}
+
+export interface DependencyStatus {
+  status: string;
+  detail: string;
+}
+
+export interface ReadyResponse {
+  status: string;
+  dependencies: Record<string, DependencyStatus>;
+  document_counts: Record<string, number>;
 }
 
 export interface ToolTrace {
@@ -65,6 +77,10 @@ export interface DocumentRecord {
   source_type: string;
   chunk_count: number;
   created_at: string;
+  status: DocumentStatus;
+  error_message: string | null;
+  indexed_at: string | null;
+  task_id: string | null;
 }
 
 export interface DocumentListResponse {
@@ -93,6 +109,7 @@ export interface ReviewDecisionResponse {
 
 export type LoadingKey =
   | "health"
+  | "ready"
   | "chat"
   | "documents"
   | "upload"
