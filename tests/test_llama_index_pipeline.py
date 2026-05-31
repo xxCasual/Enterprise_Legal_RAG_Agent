@@ -128,6 +128,20 @@ def test_generate_queries_returns_empty_list_when_llm_fails() -> None:
     assert pipeline._generate_queries("被拖欠工资怎么办？") == []
 
 
+def test_context_selection_prioritizes_relevant_labor_contract_citations() -> None:
+    pipeline = object.__new__(LlamaIndexLegalRAGPipeline)
+    nodes = [
+        _NodeWithScore("保险法 第一百二十条 保险代理机构注册资本规定", 0.9),
+        _NodeWithScore("劳动合同法 第十九条 试用期不得超过六个月。", 0.8),
+        _NodeWithScore("劳动法 第九十八条 解除劳动合同责任。", 0.7),
+    ]
+
+    selected = pipeline._select_context_nodes("试用期最长多久？", nodes)
+
+    assert pipeline._node_text(selected[0]) == "劳动合同法 第十九条 试用期不得超过六个月。"
+    assert "保险法" not in pipeline._node_text(selected[0])
+
+
 def test_rag_service_lazy_loads_llama_index_pipeline() -> None:
     class _FakePipeline:
         def __init__(self, verbose: bool, rebuild_index: bool):
@@ -164,5 +178,6 @@ if __name__ == "__main__":
     test_answer_falls_back_to_context_summary_when_llm_fails()
     test_answer_falls_back_when_llm_call_exceeds_timeout()
     test_generate_queries_returns_empty_list_when_llm_fails()
+    test_context_selection_prioritizes_relevant_labor_contract_citations()
     test_rag_service_lazy_loads_llama_index_pipeline()
     print("llama index pipeline ok")

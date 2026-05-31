@@ -1,5 +1,6 @@
 """Pydantic schemas for API request and response models."""
 
+from app.schemas.admin import AdminLoginRequest, AdminSessionResponse
 from app.schemas.chat import ChatRequest, ChatResponse, ErrorResponse, HealthResponse
 from app.schemas.contract_review import (
     ContractFinding,
@@ -19,6 +20,8 @@ from app.schemas.reviews import (
 from app.schemas.ops import ReadyResponse
 
 __all__ = [
+    "AdminLoginRequest",
+    "AdminSessionResponse",
     "ChatRequest",
     "ChatResponse",
     "ContractFinding",

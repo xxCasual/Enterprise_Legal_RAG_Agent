@@ -18,6 +18,10 @@ export interface ReadyResponse {
   document_counts: Record<string, number>;
 }
 
+export interface AdminSessionResponse {
+  authenticated: boolean;
+}
+
 export interface ToolTrace {
   name: string;
   status: "ok" | "error" | string;
@@ -52,6 +56,7 @@ export interface ContractReview {
   latency: number;
   review_status: "not_required" | "pending_review";
   review_id: string | null;
+  evidence_status: "not_requested" | "complete";
 }
 
 export interface ChatResponse {
@@ -112,6 +117,7 @@ export type LoadingKey =
   | "ready"
   | "chat"
   | "documents"
+  | "auth"
   | "upload"
   | "contract"
   | "reviews"

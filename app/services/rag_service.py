@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import time
-from threading import Lock
+from threading import Lock, Thread
 from typing import Any, Dict, List
+
+from app.core.observability import metrics
 
 
 class RAGService:
@@ -18,6 +20,7 @@ class RAGService:
     def __init__(self) -> None:
         self._pipeline: Any | None = None
         self._lock = Lock()
+        self._warmup_started = False
 
     def _get_pipeline(self) -> Any:
         if self._pipeline is None:
@@ -43,6 +46,32 @@ class RAGService:
             "route": result.get("route", ""),
             "latency": latency,
         }
+
+    def start_warmup(self, query: str) -> None:
+        """Warm the heavyweight RAG pipeline in a daemon thread."""
+
+        with self._lock:
+            if self._warmup_started or self._pipeline is not None:
+                return
+            self._warmup_started = True
+
+        thread = Thread(target=self._warmup, args=(query,), daemon=True)
+        thread.start()
+
+    def _warmup(self, query: str) -> None:
+        started_at = time.perf_counter()
+        status = "ok"
+        try:
+            self.chat(query)
+        except Exception:
+            status = "error"
+            metrics.increment("rag_warmup_failures_total")
+        finally:
+            metrics.observe(
+                "rag_warmup_duration_seconds",
+                time.perf_counter() - started_at,
+                labels={"status": status},
+            )
 
 
 rag_service = RAGService()

@@ -60,6 +60,7 @@ def review_labor_contract(
         contract_text,
         include_evidence=include_evidence,
     )
+    evidence_status = "complete" if include_evidence else "not_requested"
     risk_level = result.get("risk_level", "low")
     if risk_level == "high":
         pending = review_service.create_pending_review(
@@ -78,6 +79,7 @@ def review_labor_contract(
             "latency": result.get("latency", 0),
             "review_status": "pending_review",
             "review_id": review_id,
+            "evidence_status": evidence_status,
         }
         return {
             "answer": summary,
@@ -89,6 +91,7 @@ def review_labor_contract(
             "review_status": "pending_review",
             "review_id": review_id,
             "contract_review": contract_review,
+            "evidence_status": evidence_status,
         }
 
     answer = _contract_review_answer(result)
@@ -105,7 +108,9 @@ def review_labor_contract(
             **result,
             "review_status": "not_required",
             "review_id": None,
+            "evidence_status": evidence_status,
         },
+        "evidence_status": evidence_status,
     }
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from pydantic import ValidationError
+from fastapi.testclient import TestClient
 from starlette.middleware.cors import CORSMiddleware
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -100,7 +101,7 @@ def test_contract_review_contract_without_loading_rag() -> None:
 
     def fake_review_labor_contract(contract_text: str, include_evidence: bool = False):
         assert contract_text == "试用期一年。员工自愿放弃社保。"
-        assert include_evidence is True
+        assert include_evidence is False
         return {
             "risk_level": "high",
             "review_status": "pending_review",
@@ -114,6 +115,7 @@ def test_contract_review_contract_without_loading_rag() -> None:
                 "latency": 0.01,
                 "review_status": "pending_review",
                 "review_id": "review-1",
+                "evidence_status": "not_requested",
             },
         }
 
@@ -134,6 +136,44 @@ def test_contract_review_contract_without_loading_rag() -> None:
     assert response.latency == 0.01
     assert response.review_status == "pending_review"
     assert response.review_id == "review-1"
+    assert response.evidence_status == "not_requested"
+
+
+def test_contract_review_can_request_evidence_without_loading_rag() -> None:
+    original_tool = api_main.review_labor_contract
+
+    def fake_review_labor_contract(contract_text: str, include_evidence: bool = False):
+        assert contract_text == "试用期一年。"
+        assert include_evidence is True
+        return {
+            "contract_review": {
+                "risk_level": "high",
+                "findings": [],
+                "evidence": ["法律依据"],
+                "suggestions": ["建议"],
+                "disclaimer": "仅供参考，需人工复核",
+                "latency": 0.01,
+                "review_status": "pending_review",
+                "review_id": "review-2",
+                "evidence_status": "complete",
+            },
+        }
+
+    api_main.review_labor_contract = fake_review_labor_contract
+    try:
+        response = asyncio.run(
+            api_main.review_contract(
+                ContractReviewRequest(
+                    contract_text="试用期一年。",
+                    include_evidence=True,
+                )
+            )
+        )
+    finally:
+        api_main.review_labor_contract = original_tool
+
+    assert response.evidence == ["法律依据"]
+    assert response.evidence_status == "complete"
 
 
 def test_contract_review_rejects_blank_text() -> None:
@@ -194,6 +234,32 @@ def test_review_api_contracts() -> None:
     assert rejected.final_answer is None
 
 
+def test_admin_session_cookie_allows_management_requests() -> None:
+    original_document_service = api_main.document_service
+
+    class FakeDocumentService:
+        def list_documents(self):
+            return []
+
+    api_main.document_service = FakeDocumentService()
+    client = TestClient(api_main.app)
+    token = api_main.settings.api_auth_token or "local-dev-token"
+    try:
+        login = client.post("/api/admin/login", json={"token": token})
+        assert login.status_code == 200
+        assert login.json() == {"authenticated": True}
+
+        me = client.get("/api/admin/me")
+        assert me.status_code == 200
+        assert me.json() == {"authenticated": True}
+
+        documents = client.get("/api/documents")
+        assert documents.status_code == 200
+        assert documents.json() == {"documents": []}
+    finally:
+        api_main.document_service = original_document_service
+
+
 def test_openapi_uses_chinese_metadata_tags_and_contract_examples() -> None:
     api_main.app.openapi_schema = None
     schema = api_main.app.openapi()
@@ -202,7 +268,7 @@ def test_openapi_uses_chinese_metadata_tags_and_contract_examples() -> None:
     assert "人工审查" in schema["info"]["description"]
 
     tag_names = [tag["name"] for tag in schema["tags"]]
-    assert tag_names == ["系统状态", "统一问答", "合同审查", "人工审批", "企业制度"]
+    assert tag_names == ["系统状态", "管理员", "统一问答", "合同审查", "人工审批", "企业制度"]
 
     contract_post = schema["paths"]["/api/review/contract"]["post"]
     assert contract_post["summary"] == "审查劳动合同"
@@ -235,7 +301,9 @@ if __name__ == "__main__":
     test_chat_contract_without_loading_rag()
     test_chat_contract_review_returns_structured_payload()
     test_contract_review_contract_without_loading_rag()
+    test_contract_review_can_request_evidence_without_loading_rag()
     test_contract_review_rejects_blank_text()
     test_review_api_contracts()
+    test_admin_session_cookie_allows_management_requests()
     test_app_allows_vite_dev_origins_for_frontend_proxy()
     print("api contract ok")

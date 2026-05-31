@@ -193,6 +193,27 @@ p {
   font-size: 13px;
 }
 
+.admin-session {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-session button {
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .status-dot {
   width: 10px;
   height: 10px;
@@ -306,6 +327,10 @@ p {
   align-items: start;
 }
 
+.admin-login-panel {
+  max-width: 560px;
+}
+
 .split-layout {
   display: grid;
   grid-template-columns: minmax(320px, 0.7fr) minmax(440px, 1.3fr);
@@ -359,9 +384,35 @@ textarea {
 }
 
 textarea:focus,
-input[type="file"]:focus {
+input[type="file"]:focus,
+input[type="password"]:focus {
   border-color: #7fac9d;
   box-shadow: 0 0 0 3px rgba(23, 107, 91, 0.12);
+}
+
+input[type="password"] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 11px 12px;
+  outline: none;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.checkbox-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .actions {

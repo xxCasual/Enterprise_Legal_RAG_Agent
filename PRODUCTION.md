@@ -31,7 +31,6 @@ cp .env.example .env
 ```env
 DEEPSEEK_API_KEY=your_key
 API_AUTH_TOKEN=replace_with_a_random_token
-VITE_API_AUTH_TOKEN=replace_with_the_same_token
 ```
 
 For an offline local bge-m3 embedding model, keep the Compose defaults or set:
@@ -67,7 +66,8 @@ docker compose -f docker-compose.prod.yml up --build
   `/api/documents/upload`, `/api/documents`, `/api/reviews/*`.
 - Upload, document list, and review approval endpoints are protected when
   `API_AUTH_TOKEN` is configured. Clients can send `X-API-Key` or
-  `Authorization: Bearer <token>`.
+  `Authorization: Bearer <token>`. The browser console logs in with that token
+  and then uses an HttpOnly session cookie.
 - In local development without `DATABASE_URL` and `REDIS_URL`, the app keeps
   using JSON registries and inline document indexing.
 - In the Compose profile, document upload creates a `pending` record, pushes an
@@ -95,6 +95,7 @@ curl http://localhost:8080/api/ready
 curl http://localhost:8080/api/metrics
 docker compose -f docker-compose.prod.yml logs -f api worker
 API_AUTH_TOKEN=replace_with_a_random_token scripts/production_smoke.sh
+API_AUTH_TOKEN=replace_with_a_random_token ./venv/bin/python scripts/stress_mixed.py
 ```
 
 ## Acceptance Flow

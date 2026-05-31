@@ -1,4 +1,5 @@
 import type {
+  AdminSessionResponse,
   ChatResponse,
   ContractReview,
   DocumentListResponse,
@@ -11,12 +12,14 @@ import type {
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
-const API_TOKEN = import.meta.env.VITE_API_AUTH_TOKEN ?? "";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (API_TOKEN) headers.set("X-API-Key", API_TOKEN);
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    credentials: "include",
+    headers
+  });
   const text = await response.text();
   const payload = text ? safeParseJson(text) : {};
 
@@ -54,6 +57,24 @@ export function checkReady(): Promise<ReadyResponse> {
   return requestJson<ReadyResponse>("/api/ready");
 }
 
+export function checkAdminSession(): Promise<AdminSessionResponse> {
+  return requestJson<AdminSessionResponse>("/api/admin/me");
+}
+
+export function loginAdmin(token: string): Promise<AdminSessionResponse> {
+  return requestJson<AdminSessionResponse>("/api/admin/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token })
+  });
+}
+
+export function logoutAdmin(): Promise<AdminSessionResponse> {
+  return requestJson<AdminSessionResponse>("/api/admin/logout", {
+    method: "POST"
+  });
+}
+
 export function sendChat(query: string): Promise<ChatResponse> {
   return requestJson<ChatResponse>("/api/chat", {
     method: "POST",
@@ -62,11 +83,14 @@ export function sendChat(query: string): Promise<ChatResponse> {
   });
 }
 
-export function reviewContract(contractText: string): Promise<ContractReview> {
+export function reviewContract(
+  contractText: string,
+  includeEvidence = false
+): Promise<ContractReview> {
   return requestJson<ContractReview>("/api/review/contract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contract_text: contractText })
+    body: JSON.stringify({ contract_text: contractText, include_evidence: includeEvidence })
   });
 }
 

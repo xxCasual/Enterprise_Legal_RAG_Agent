@@ -97,7 +97,7 @@ class LlamaIndexLegalRAGPipeline:
             else self._hybrid_retrieve_then_rerank(question)
         )
         filtered = self._crag_filter(question, retrieved)
-        used_nodes = filtered[:4]
+        used_nodes = self._select_context_nodes(question, filtered)[:4]
         contexts = [self._node_text(item) for item in used_nodes]
         answer = self._answer(question, contexts)
 
@@ -276,6 +276,60 @@ class LlamaIndexLegalRAGPipeline:
                 candidates,
                 query_bundle=QueryBundle(query),
             )[: self.rerank_top_n]
+
+    def _select_context_nodes(self, question: str, nodes: List[Any]) -> List[Any]:
+        if not nodes:
+            return []
+        scored = [
+            (self._context_relevance_score(question, self._node_text(node)), index, node)
+            for index, node in enumerate(nodes)
+        ]
+        if not any(score > 0 for score, _, _ in scored):
+            return nodes
+        scored.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+        return [node for _, _, node in scored]
+
+    def _context_relevance_score(self, question: str, text: str) -> int:
+        score = 0
+        for term in self._query_terms(question):
+            if term and term in text:
+                score += 4 if term.startswith("第") else 2
+        if "保险法" in text and not any(term in question for term in ("保险", "社保", "工伤")):
+            score -= 6
+        if "劳动合同法" in text and any(term in question for term in ("劳动合同", "试用期", "合同")):
+            score += 3
+        if "劳动争议调解仲裁法" in text and "仲裁" in question:
+            score += 3
+        return score
+
+    def _query_terms(self, question: str) -> List[str]:
+        terms = [
+            term
+            for term in (
+                "劳动合同法",
+                "劳动法",
+                "劳动争议调解仲裁法",
+                "试用期",
+                "工资",
+                "加班",
+                "社保",
+                "社会保险",
+                "解除",
+                "终止",
+                "经济补偿",
+                "仲裁",
+            )
+            if term in question
+        ]
+        if "试用期" in question:
+            terms.extend(["第十九条", "不得超过六个月"])
+        if "仲裁" in question:
+            terms.extend(["第二十七条", "仲裁时效", "一年"])
+        if "社保" in question or "社会保险" in question:
+            terms.extend(["社会保险", "第十七条"])
+        if "解除" in question or "终止" in question:
+            terms.extend(["解除劳动合同", "经济补偿"])
+        return terms
 
     def _crag_filter(self, question: str, nodes: List[Any]) -> List[Any]:
         if self.crag_mode in {"off", "reranker"}:

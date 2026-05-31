@@ -20,11 +20,14 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  checkAdminSession,
   checkReady,
   checkHealth,
   decideReview,
   listDocuments,
   listPendingReviews,
+  loginAdmin,
+  logoutAdmin,
   reviewContract,
   sendChat,
   uploadDocument
@@ -45,6 +48,7 @@ import type {
 
 type ViewId = "chat" | "documents" | "contract" | "reviews" | "status";
 type HealthState = "unknown" | "ok" | "bad";
+type AdminAuthState = "checking" | "authenticated" | "anonymous";
 
 const sampleContract =
   "合同期限为三年。试用期一年。工资另行约定。员工自愿放弃社保。甲方可随时解除合同且不支付经济补偿。";
@@ -70,6 +74,7 @@ function App() {
     health: false,
     ready: false,
     chat: false,
+    auth: false,
     documents: false,
     upload: false,
     contract: false,
@@ -80,10 +85,13 @@ function App() {
   const [ready, setReady] = useState<ReadyResponse | null>(null);
   const [lastAction, setLastAction] = useState("等待操作");
   const [error, setError] = useState<string | null>(null);
+  const [adminAuth, setAdminAuth] = useState<AdminAuthState>("checking");
+  const [adminToken, setAdminToken] = useState("");
   const [query, setQuery] = useState("试用期最长多久？");
   const [chatResult, setChatResult] = useState<ChatResponse | null>(null);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [contractText, setContractText] = useState(sampleContract);
+  const [includeContractEvidence, setIncludeContractEvidence] = useState(false);
   const [contractResult, setContractResult] = useState<ContractReview | null>(null);
   const [reviews, setReviews] = useState<PendingReviewRecord[]>([]);
   const [decisionResult, setDecisionResult] = useState<ReviewDecisionResponse | null>(null);
@@ -125,6 +133,20 @@ function App() {
     }
   }, [setLoading]);
 
+  const runAdminAuthCheck = useCallback(async () => {
+    setLoading("auth", true);
+    try {
+      const payload = await checkAdminSession();
+      setAdminAuth(payload.authenticated ? "authenticated" : "anonymous");
+      setLastAction(payload.authenticated ? "管理员会话有效" : "需要管理员登录");
+    } catch {
+      setAdminAuth("anonymous");
+      setLastAction("需要管理员登录");
+    } finally {
+      setLoading("auth", false);
+    }
+  }, [setLoading]);
+
   const refreshDocuments = useCallback(async () => {
     setLoading("documents", true);
     setError(null);
@@ -133,6 +155,12 @@ function App() {
       setDocuments(payload.documents);
       setLastAction("制度文档已刷新");
     } catch (err) {
+      if (isAuthError(err)) {
+        setAdminAuth("anonymous");
+        setDocuments([]);
+        setLastAction("请先登录管理员会话");
+        return;
+      }
       setError(errorMessage(err));
       setLastAction("制度文档加载失败");
     } finally {
@@ -148,6 +176,12 @@ function App() {
       setReviews(payload.reviews);
       setLastAction("审批队列已刷新");
     } catch (err) {
+      if (isAuthError(err)) {
+        setAdminAuth("anonymous");
+        setReviews([]);
+        setLastAction("请先登录管理员会话");
+        return;
+      }
       setError(errorMessage(err));
       setLastAction("审批队列加载失败");
     } finally {
@@ -158,9 +192,53 @@ function App() {
   useEffect(() => {
     runHealth();
     runReady();
+    runAdminAuthCheck();
+  }, [runAdminAuthCheck, runHealth, runReady]);
+
+  useEffect(() => {
+    if (adminAuth !== "authenticated") return;
     refreshDocuments();
     refreshReviews();
-  }, [refreshDocuments, refreshReviews, runHealth, runReady]);
+  }, [adminAuth, refreshDocuments, refreshReviews]);
+
+  const handleAdminLogin = async () => {
+    const token = adminToken.trim();
+    if (!token) {
+      setError("请输入管理员 token");
+      return;
+    }
+    setLoading("auth", true);
+    setError(null);
+    try {
+      const payload = await loginAdmin(token);
+      setAdminAuth(payload.authenticated ? "authenticated" : "anonymous");
+      setAdminToken("");
+      setLastAction("管理员登录成功");
+    } catch (err) {
+      setAdminAuth("anonymous");
+      setError(errorMessage(err));
+      setLastAction("管理员登录失败");
+    } finally {
+      setLoading("auth", false);
+    }
+  };
+
+  const handleAdminLogout = async () => {
+    setLoading("auth", true);
+    setError(null);
+    try {
+      await logoutAdmin();
+      setAdminAuth("anonymous");
+      setDocuments([]);
+      setReviews([]);
+      setLastAction("管理员已退出");
+    } catch (err) {
+      setError(errorMessage(err));
+      setLastAction("管理员退出失败");
+    } finally {
+      setLoading("auth", false);
+    }
+  };
 
   const runChat = async (forcedQuery?: string) => {
     const finalQuery = (forcedQuery ?? query).trim();
@@ -216,7 +294,7 @@ function App() {
     setLoading("contract", true);
     setError(null);
     try {
-      const payload = await reviewContract(text);
+      const payload = await reviewContract(text, includeContractEvidence);
       setContractResult(payload);
       setLastAction("合同审查完成");
       if (payload.review_status === "pending_review") {
@@ -292,6 +370,12 @@ function App() {
             onClick={runHealth}
           />
         </div>
+        <div className="admin-session">
+          <span>{adminAuth === "authenticated" ? "管理员已登录" : adminAuth === "checking" ? "检查管理员会话" : "管理员未登录"}</span>
+          {adminAuth === "authenticated" ? (
+            <button type="button" disabled={loading.auth} onClick={handleAdminLogout}>退出</button>
+          ) : null}
+        </div>
       </aside>
 
       <main className="content">
@@ -327,19 +411,30 @@ function App() {
         ) : null}
 
         {activeView === "documents" ? (
-          <DocumentsView
-            documents={documents}
-            loading={loading.documents || loading.upload}
-            fileInputRef={fileInputRef}
-            onRefresh={refreshDocuments}
-            onUpload={handleUpload}
-          />
+          adminAuth === "authenticated" ? (
+            <DocumentsView
+              documents={documents}
+              loading={loading.documents || loading.upload}
+              fileInputRef={fileInputRef}
+              onRefresh={refreshDocuments}
+              onUpload={handleUpload}
+            />
+          ) : (
+            <AdminLoginPanel
+              token={adminToken}
+              setToken={setAdminToken}
+              loading={loading.auth || adminAuth === "checking"}
+              onLogin={handleAdminLogin}
+            />
+          )
         ) : null}
 
         {activeView === "contract" ? (
           <ContractView
             contractText={contractText}
             setContractText={setContractText}
+            includeEvidence={includeContractEvidence}
+            setIncludeEvidence={setIncludeContractEvidence}
             result={contractResult}
             loading={loading.contract}
             onSample={() => setContractText(sampleContract)}
@@ -348,13 +443,22 @@ function App() {
         ) : null}
 
         {activeView === "reviews" ? (
-          <ReviewsView
-            reviews={reviews}
-            decisionResult={decisionResult}
-            loading={loading.reviews || loading.approval}
-            onRefresh={refreshReviews}
-            onDecision={handleDecision}
-          />
+          adminAuth === "authenticated" ? (
+            <ReviewsView
+              reviews={reviews}
+              decisionResult={decisionResult}
+              loading={loading.reviews || loading.approval}
+              onRefresh={refreshReviews}
+              onDecision={handleDecision}
+            />
+          ) : (
+            <AdminLoginPanel
+              token={adminToken}
+              setToken={setAdminToken}
+              loading={loading.auth || adminAuth === "checking"}
+              onLogin={handleAdminLogin}
+            />
+          )
         ) : null}
 
         {activeView === "status" ? (
@@ -383,6 +487,47 @@ interface ChatViewProps {
   loading: boolean;
   onSubmit: () => void;
   onQuickQuery: (query: string) => void;
+}
+
+function AdminLoginPanel({
+  token,
+  setToken,
+  loading,
+  onLogin
+}: {
+  token: string;
+  setToken: (token: string) => void;
+  loading: boolean;
+  onLogin: () => void;
+}) {
+  return (
+    <section className="admin-login-panel">
+      <div className="input-panel">
+        <div className="section-head">
+          <div>
+            <h3>管理员登录</h3>
+            <p>上传制度文档和处理人工审批需要管理员会话。</p>
+          </div>
+        </div>
+        <input
+          type="password"
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") onLogin();
+          }}
+          placeholder="输入管理员 token"
+          autoComplete="current-password"
+        />
+        <div className="actions">
+          <button className="primary" type="button" disabled={loading} onClick={onLogin}>
+            {loading ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <Scale size={17} aria-hidden="true" />}
+            <span>登录</span>
+          </button>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function ChatView({ query, setQuery, result, loading, onSubmit, onQuickQuery }: ChatViewProps) {
@@ -516,6 +661,8 @@ function DocumentItem({ document }: { document: DocumentRecord }) {
 interface ContractViewProps {
   contractText: string;
   setContractText: (value: string) => void;
+  includeEvidence: boolean;
+  setIncludeEvidence: (value: boolean) => void;
   result: ContractReview | null;
   loading: boolean;
   onSample: () => void;
@@ -525,6 +672,8 @@ interface ContractViewProps {
 function ContractView({
   contractText,
   setContractText,
+  includeEvidence,
+  setIncludeEvidence,
   result,
   loading,
   onSample,
@@ -545,6 +694,14 @@ function ContractView({
           placeholder="粘贴劳动合同文本"
           rows={12}
         />
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={includeEvidence}
+            onChange={(event) => setIncludeEvidence(event.target.checked)}
+          />
+          <span>同步补全法律依据（更慢）</span>
+        </label>
         <div className="actions">
           <button className="primary" type="button" disabled={loading} onClick={onReview}>
             {loading ? <Loader2 className="spin" size={17} aria-hidden="true" /> : <ClipboardCheck size={17} aria-hidden="true" />}
@@ -778,6 +935,7 @@ function ContractReviewDetails({ review }: { review: ContractReview }) {
           <strong>{review.risk_level}</strong>
         </div>
         <RiskPill risk={review.risk_level} />
+        <EvidencePill status={review.evidence_status} />
         {pending ? <StatusPill label="review" value="待人工复核" tone="warn" /> : <StatusPill label="review" value="无需复核" tone="ok" />}
         {review.review_id ? <StatusPill label="review_id" value={review.review_id} /> : null}
       </div>
@@ -798,6 +956,11 @@ function ContractReviewDetails({ review }: { review: ContractReview }) {
       <JsonDetails title="结构化结果" payload={review} />
     </div>
   );
+}
+
+function EvidencePill({ status }: { status: ContractReview["evidence_status"] }) {
+  const label = status === "complete" ? "法律依据已补全" : "规则审查完成";
+  return <StatusPill label="evidence" value={label} tone={status === "complete" ? "ok" : "neutral"} />;
 }
 
 function FindingItem({ finding }: { finding: ContractFinding }) {
@@ -1008,6 +1171,11 @@ function EmptyState({
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "请求失败";
+}
+
+function isAuthError(err: unknown): boolean {
+  const message = errorMessage(err);
+  return message.includes("Missing or invalid API token") || message.includes("401");
 }
 
 function formatDate(value: string): string {

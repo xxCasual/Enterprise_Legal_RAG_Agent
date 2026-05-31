@@ -7,9 +7,12 @@ import logging
 import time
 from uuid import uuid4
 
-from fastapi import Body, Depends, FastAPI, File, HTTPException, Path, Request, UploadFile
+import hmac
+
+from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Path, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.agent import run_agent_chat
 from app.agent.tools import review_labor_contract
@@ -17,9 +20,16 @@ from app.core.database import init_database
 from app.core.logging import configure_logging
 from app.core.observability import metrics
 from app.core.readiness import collect_readiness
-from app.core.security import require_admin_token
+from app.core.security import (
+    ADMIN_SESSION_COOKIE,
+    create_admin_session,
+    is_admin_authenticated,
+    require_admin_token,
+)
 from app.core.config import settings
 from app.schemas import (
+    AdminLoginRequest,
+    AdminSessionResponse,
     ChatRequest,
     ChatResponse,
     ContractReviewRequest,
@@ -49,6 +59,10 @@ OPENAPI_TAGS = [
     {
         "name": "系统状态",
         "description": "用于检查服务是否正常启动。",
+    },
+    {
+        "name": "管理员",
+        "description": "用于前端控制台建立安全的管理员会话。",
     },
     {
         "name": "统一问答",
@@ -112,6 +126,10 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event() -> None:
     init_database()
+    if settings.rag_warmup_on_startup:
+        from app.services.rag_service import rag_service
+
+        rag_service.start_warmup(settings.rag_warmup_query)
 
 
 @app.middleware("http")
@@ -128,6 +146,23 @@ async def request_observability_middleware(request: Request, call_next):
         latency = time.perf_counter() - started_at
         metrics.increment("http_requests_total")
         metrics.observe("http_request_duration_seconds", latency)
+        metrics.increment(
+            "http_requests_total",
+            labels={
+                "method": request.method,
+                "path": request.url.path,
+                "status": status_code,
+            },
+        )
+        metrics.observe(
+            "http_request_duration_seconds",
+            latency,
+            labels={
+                "method": request.method,
+                "path": request.url.path,
+                "status": status_code,
+            },
+        )
         if response is not None:
             response.headers["X-Request-ID"] = request_id
         logger.info(
@@ -186,6 +221,61 @@ async def metrics_endpoint() -> PlainTextResponse:
 
 
 @app.post(
+    "/api/admin/login",
+    response_model=AdminSessionResponse,
+    tags=["管理员"],
+    summary="创建管理员会话",
+)
+async def admin_login(
+    request: AdminLoginRequest,
+    response: Response,
+) -> AdminSessionResponse:
+    expected = settings.api_auth_token
+    if expected and not hmac.compare_digest(request.token, expected):
+        raise HTTPException(status_code=401, detail="Missing or invalid API token")
+    response.set_cookie(
+        ADMIN_SESSION_COOKIE,
+        create_admin_session(),
+        max_age=settings.admin_session_ttl_seconds,
+        httponly=True,
+        samesite="lax",
+        secure=settings.admin_session_cookie_secure,
+    )
+    return AdminSessionResponse(authenticated=True)
+
+
+@app.post(
+    "/api/admin/logout",
+    response_model=AdminSessionResponse,
+    tags=["管理员"],
+    summary="清除管理员会话",
+)
+async def admin_logout(response: Response) -> AdminSessionResponse:
+    response.delete_cookie(ADMIN_SESSION_COOKIE, samesite="lax")
+    return AdminSessionResponse(authenticated=False)
+
+
+@app.get(
+    "/api/admin/me",
+    response_model=AdminSessionResponse,
+    tags=["管理员"],
+    summary="检查当前管理员会话",
+)
+async def admin_me(
+    request: Request,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    authorization: str | None = Header(default=None),
+) -> AdminSessionResponse:
+    return AdminSessionResponse(
+        authenticated=is_admin_authenticated(
+            request,
+            x_api_key=x_api_key,
+            authorization=authorization,
+        )
+    )
+
+
+@app.post(
     "/api/chat",
     response_model=ChatResponse,
     tags=["统一问答"],
@@ -218,7 +308,7 @@ async def chat(
         },
     )
 ) -> ChatResponse:
-    result = run_agent_chat(request.query)
+    result = await run_in_threadpool(run_agent_chat, request.query)
     return ChatResponse(**result)
 
 
@@ -259,7 +349,11 @@ async def review_contract(
         },
     )
 ) -> ContractReviewResponse:
-    result = review_labor_contract(request.contract_text, include_evidence=True)
+    result = await run_in_threadpool(
+        review_labor_contract,
+        request.contract_text,
+        include_evidence=request.include_evidence,
+    )
     contract_review = result.get("contract_review") or {}
     return ContractReviewResponse(**contract_review)
 

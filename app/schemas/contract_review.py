@@ -35,6 +35,10 @@ class ContractReviewRequest(BaseModel):
     )
 
     contract_text: str = Field(..., min_length=1, description="待审查的劳动合同正文。")
+    include_evidence: bool = Field(
+        default=False,
+        description="是否同步检索法律依据。默认关闭以优先返回规则审查结果。",
+    )
 
     @field_validator("contract_text")
     @classmethod
@@ -94,3 +98,7 @@ class ContractReviewResponse(BaseModel):
         description="是否需要进入人工复核。",
     )
     review_id: str | None = Field(default=None, description="人工复核记录 ID。")
+    evidence_status: Literal["not_requested", "complete"] = Field(
+        default="not_requested",
+        description="法律依据补全状态。",
+    )

@@ -91,7 +91,6 @@ cp .env.example .env
 ```env
 DEEPSEEK_API_KEY=your_key
 API_AUTH_TOKEN=replace_with_a_random_token
-VITE_API_AUTH_TOKEN=replace_with_the_same_token
 ```
 
 2. 如果使用本地 bge-m3，确认 `.env` 里的模型路径。
@@ -195,9 +194,10 @@ npm run dev
 | `CORS_ORIGINS` | 允许访问 API 的前端地址 |
 | `MAX_UPLOAD_MB` | 上传文件大小限制 |
 | `INDEXING_MAX_ATTEMPTS` | 索引任务最大重试次数 |
-| `API_AUTH_TOKEN` | 管理接口 token |
+| `API_AUTH_TOKEN` | 管理接口 token；前端通过登录换取 HttpOnly cookie |
+| `ADMIN_SESSION_TTL_SECONDS` | 管理员 cookie 会话有效期 |
+| `LEGAL_RAG_WARMUP_ON_STARTUP` | 启动后是否后台预热法律 RAG |
 | `VITE_API_BASE_URL` | 前端构建时 API base；Compose 下保持空 |
-| `VITE_API_AUTH_TOKEN` | 前端管理接口 token，需和 `API_AUTH_TOKEN` 一致 |
 | `LOCAL_HF_HUB` | Docker 挂载宿主机 HuggingFace hub |
 | `LOCAL_BGE_M3_MODEL_DIR` | Docker 挂载 bge-m3 真实目录 |
 
@@ -369,6 +369,13 @@ Agent Eval：
 API_AUTH_TOKEN=replace_with_a_random_token scripts/production_smoke.sh
 ```
 
+混合压测：
+
+```bash
+API_AUTH_TOKEN=replace_with_a_random_token ./venv/bin/python scripts/stress_mixed.py
+RUN_REAL_RAG=1 API_AUTH_TOKEN=replace_with_a_random_token ./venv/bin/python scripts/stress_mixed.py
+```
+
 Docker 验收建议：
 
 ```bash
@@ -427,6 +434,7 @@ curl http://localhost:8080/api/ready
 ### 首次问答很慢
 
 使用 bge-m3 时，首次法律问答可能会加载模型并构建 Chroma 索引。本机 Docker/Colima 下这是 CPU 任务，后续请求会快很多。
+可用 `scripts/rag_warmup.sh` 或设置 `LEGAL_RAG_WARMUP_ON_STARTUP=1` 预热法律 RAG。
 
 ### bge-m3 在 Docker 中路径不存在
 
@@ -442,7 +450,7 @@ LOCAL_BGE_M3_MODEL_DIR=/absolute/path/to/real/models--BAAI--bge-m3
 
 ### 上传、审批接口 401
 
-`.env` 中的 `API_AUTH_TOKEN` 和 `VITE_API_AUTH_TOKEN` 必须一致。curl 调用时加：
+前端控制台会要求输入 `API_AUTH_TOKEN` 并保存为 HttpOnly cookie。curl 调用时加：
 
 ```bash
 -H "X-API-Key: $TOKEN"

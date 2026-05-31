@@ -52,6 +52,13 @@ def _int_from_env(name: str, default: int) -> int:
     return int(value)
 
 
+def _bool_from_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _list_from_env(name: str, default: list[str]) -> list[str]:
     value = os.getenv(name)
     if not value:
@@ -97,6 +104,16 @@ class Settings:
     max_upload_mb: int = _int_from_env("MAX_UPLOAD_MB", 20)
     indexing_max_attempts: int = _int_from_env("INDEXING_MAX_ATTEMPTS", 3)
     api_auth_token: str | None = os.getenv("API_AUTH_TOKEN")
+    admin_session_ttl_seconds: int = _int_from_env(
+        "ADMIN_SESSION_TTL_SECONDS",
+        8 * 60 * 60,
+    )
+    admin_session_cookie_secure: bool = _bool_from_env(
+        "ADMIN_SESSION_COOKIE_SECURE",
+        False,
+    )
+    rag_warmup_on_startup: bool = _bool_from_env("LEGAL_RAG_WARMUP_ON_STARTUP", False)
+    rag_warmup_query: str = os.getenv("LEGAL_RAG_WARMUP_QUERY", "试用期最长多久？")
     log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
     storage_dir: Path = _path_from_env("LEGAL_RAG_STORAGE_DIR", PROJECT_ROOT / "storage")
     uploads_dir: Path = _path_from_env(
