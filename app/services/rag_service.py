@@ -47,6 +47,27 @@ class RAGService:
             "latency": latency,
         }
 
+    def retrieve(self, query: str) -> Dict[str, Any]:
+        started_at = time.perf_counter()
+        pipeline = self._get_pipeline()
+        if hasattr(pipeline, "retrieve_with_details"):
+            result = pipeline.retrieve_with_details(query)
+        else:
+            result = pipeline.query_with_details(query)
+        latency = round(time.perf_counter() - started_at, 3)
+
+        contexts: List[str] = result.get("contexts") or []
+        return {
+            "answer": result.get("answer", ""),
+            "citations": contexts,
+            "contexts": contexts,
+            "route": result.get("route", ""),
+            "chunks_retrieved": result.get("chunks_retrieved", len(contexts)),
+            "chunks_after_filter": result.get("chunks_after_filter", len(contexts)),
+            "crag_mode": result.get("crag_mode", ""),
+            "latency": latency,
+        }
+
     def start_warmup(self, query: str) -> None:
         """Warm the heavyweight RAG pipeline in a daemon thread."""
 

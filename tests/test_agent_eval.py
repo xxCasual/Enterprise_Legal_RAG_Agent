@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import evaluation.agent_eval as agent_eval  # noqa: E402
+import evaluation.agent.core as agent_eval_core  # noqa: E402
 
 
 def _sample(
@@ -133,6 +134,11 @@ def test_agent_eval_uses_dedicated_results_directory() -> None:
     assert agent_eval.AGENT_RESULTS_DIR.name != "results"
 
 
+def test_legacy_agent_eval_entrypoint_reexports_new_core() -> None:
+    assert agent_eval.run_agent_eval is agent_eval_core.run_agent_eval
+    assert agent_eval._tools_match is agent_eval_core._tools_match
+
+
 def test_agent_eval_records_sample_errors_without_stopping() -> None:
     samples = [
         _sample("会失败的问题", "law_qa", ["search_law_articles"], False, None)
@@ -213,6 +219,7 @@ if __name__ == "__main__":
     test_agent_eval_calculates_discrete_metrics()
     test_agent_eval_saves_csv_and_json_summary()
     test_agent_eval_uses_dedicated_results_directory()
+    test_legacy_agent_eval_entrypoint_reexports_new_core()
     test_agent_eval_records_sample_errors_without_stopping()
     test_agent_eval_requires_no_tools_when_expected_tools_is_empty()
     test_agent_eval_accepts_compliance_qa_multi_tool_samples()

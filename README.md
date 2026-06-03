@@ -30,7 +30,7 @@
 | 文档解析 | pypdf, python-docx |
 | 持久化 | PostgreSQL, SQLAlchemy, Alembic；本地开发保留 JSON fallback |
 | 异步任务 | Redis queue + Python worker |
-| 测试评估 | pytest, Agent Eval |
+| 测试评估 | pytest, Agent Eval, RAG Eval |
 
 ## 架构
 
@@ -67,7 +67,7 @@ flowchart LR
 │   └── services/                   # 文档、审批、合同审查、RAG service
 ├── alembic/                        # PostgreSQL 迁移
 ├── data/                           # 内置法律文本与评估集
-├── evaluation/                     # Agent Eval 脚本
+├── evaluation/                     # Agent/RAG Eval 与共享评估工具
 ├── frontend/                       # React 控制台和 Nginx 配置
 ├── scripts/production_smoke.sh     # 生产化冒烟测试
 ├── docker-compose.prod.yml         # 生产化 Compose 栈
@@ -354,7 +354,8 @@ npm run preview
 ./venv/bin/python -m pytest tests/test_config.py tests/test_llama_index_pipeline.py
 ```
 
-Agent Eval：
+Agent Eval 用于评估路由、工具选择、拒答和合同风险。快速检查本地规则链路时使用
+`--routing-only`，不触发 RAG/LLM 生成：
 
 ```bash
 ./venv/bin/python evaluation/run_agent_eval_suite.py \
@@ -362,6 +363,28 @@ Agent Eval：
   --suite split \
   --routing-only
 ```
+
+也可以使用新的模块入口：
+
+```bash
+./venv/bin/python -m evaluation.agent.suite \
+  --testset data/eval/agent_testset.json \
+  --suite split \
+  --routing-only
+```
+
+RAG Eval 用于评估法律 RAG 的检索上下文和最终回答质量。`retrieval` 模式只看
+context recall/precision 和延迟；`e2e` 模式同时检查回答是否覆盖 ground truth：
+
+```bash
+./venv/bin/python -m evaluation.rag.cli --mode retrieval --limit 20
+./venv/bin/python -m evaluation.rag.cli \
+  --mode e2e \
+  --testset data/eval/testset.json \
+  --tag baseline
+```
+
+评估结果分别写入 `data/eval/agent_results/` 和 `data/eval/rag_results/`。
 
 生产化冒烟测试：
 

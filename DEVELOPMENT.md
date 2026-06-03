@@ -94,9 +94,18 @@ Vite 会把 `/api` 代理到 `http://127.0.0.1:8000`。
 - 不包含旧实验目录 `experiments/`
 - 不包含历史兼容入口 `src/`
 
+## 评估模块
+
+- Agent Eval 评估意图路由、工具选择、拒答和合同风险，主入口是 `python -m evaluation.agent.suite`；历史入口 `evaluation/run_agent_eval_suite.py` 保留兼容。
+- 本地快速检查 Agent 规则链路时使用 `--routing-only`，它会跳过 RAG/LLM 生成。
+- RAG Eval 评估法律 RAG 主链路，主入口是 `python -m evaluation.rag.cli`。
+- `--mode retrieval` 只检查检索上下文质量和延迟，适合调参 embedding、BM25、RRF、reranker。
+- `--mode e2e` 会评估最终答案是否覆盖 `ground_truth`，适合发布前验收。
+- Agent 和 RAG 结果分别写入 `data/eval/agent_results/` 与 `data/eval/rag_results/`，不提交历史结果。
+
 ## 维护建议
 
 - 生产路径优先关注 `app/`
-- 评估只保留最小 Agent Eval 能力，入口在 `evaluation/run_agent_eval_suite.py`
+- 评估模块分为 Agent Eval 与 RAG Eval；新增评估能力优先放入对应子包，通用输出、缓存和延迟统计放入 `evaluation/common/`
 - 如果后续继续扩展知识库或 Agent 行为，优先保证 `/api/chat` 契约稳定
 - `tools_used` 是稳定摘要字段；`tool_trace` 是调试轨迹字段，可用于查看工具名、参数摘要、状态和耗时

@@ -75,15 +75,13 @@ class LlamaIndexLegalRAGPipeline:
         result = self.query_with_details(question)
         return result["answer"], result["contexts"]
 
-    def query_with_details(self, question: str) -> Dict[str, Any]:
+    def retrieve_with_details(self, question: str) -> Dict[str, Any]:
         started_at = time.perf_counter()
         route = self._route(question)
 
         if "知识库外" in route or "无关" in route:
-            answer = self._reject(question)
             return {
                 "route": route,
-                "answer": answer,
                 "contexts": [],
                 "chunks_retrieved": 0,
                 "chunks_after_filter": 0,
@@ -99,15 +97,29 @@ class LlamaIndexLegalRAGPipeline:
         filtered = self._crag_filter(question, retrieved)
         used_nodes = self._select_context_nodes(question, filtered)[:4]
         contexts = [self._node_text(item) for item in used_nodes]
-        answer = self._answer(question, contexts)
 
         return {
             "route": route,
-            "answer": answer,
             "contexts": contexts,
             "chunks_retrieved": len(retrieved),
             "chunks_after_filter": len(filtered),
             "crag_mode": self.crag_mode,
+            "latency": round(time.perf_counter() - started_at, 3),
+        }
+
+    def query_with_details(self, question: str) -> Dict[str, Any]:
+        started_at = time.perf_counter()
+        result = self.retrieve_with_details(question)
+        route = str(result.get("route") or "")
+        contexts = list(result.get("contexts") or [])
+        answer = (
+            self._reject(question)
+            if "知识库外" in route or "无关" in route
+            else self._answer(question, contexts)
+        )
+        return {
+            **result,
+            "answer": answer,
             "latency": round(time.perf_counter() - started_at, 3),
         }
 
