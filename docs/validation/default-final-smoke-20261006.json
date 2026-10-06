@@ -1,0 +1,50 @@
+{
+  "model_mode": "no-key fallback; no model quality claim",
+  "health": {
+    "status": "ok"
+  },
+  "readiness": {
+    "status": "degraded",
+    "dependencies": {
+      "database": {
+        "status": "ok",
+        "detail": "connected"
+      },
+      "redis": {
+        "status": "ok",
+        "detail": "connected"
+      },
+      "chroma": {
+        "status": "ok",
+        "detail": "chroma:8000"
+      },
+      "model_api": {
+        "status": "degraded",
+        "detail": "DEEPSEEK_API_KEY is not configured"
+      }
+    },
+    "document_counts": {
+      "pending": 0,
+      "indexing": 0,
+      "ready": 2,
+      "failed": 0,
+      "total": 2
+    }
+  },
+  "doc_id": "6d618a76-5d8e-4a6e-a367-040b03f888be",
+  "task_id": "8a8a36ec-6351-402b-9b60-586ec230a50a",
+  "document_status": "ready",
+  "chunk_count": 1,
+  "policy_query_intent": "policy_qa",
+  "policy_citation_found": true,
+  "review_id": "b74b093d-127f-4420-81a4-4fc515f4117e",
+  "review_status": "approved",
+  "admin_auth_checked": true,
+  "metrics_checked": true,
+  "code_commit": "ec4fe499cd253ea2927f531ced26adde2ca27163",
+  "working_tree_changes": true,
+  "embedding_model": "BAAI/bge-small-zh-v1.5",
+  "compose_sha256": "eb50742d7713285c5c1f6ac7eb3b2648ec54b0f3193bd8cef079e419ecde8cbf",
+  "harness_sha256": "5b4d9ac6e6bea77c83411b251ed1a94e42f767fd09f46a49966952cf4312f737",
+  "scope": "final default configuration; existing volumes from cold-start smoke; shared LlamaIndex model cache"
+}

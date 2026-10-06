@@ -1,4 +1,15 @@
 services:
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+psycopg://legal_rag:legal_rag@postgres:5432/legal_rag
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build:
       context: .
@@ -17,9 +28,10 @@ services:
       CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       HF_HOME: /app/.cache/huggingface
-      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-1}
-      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-1}
-      LEGAL_RAG_EMBEDDING_MODEL: ${LEGAL_RAG_EMBEDDING_MODEL:-/models/hf-hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181}
+      LLAMA_INDEX_CACHE_DIR: /app/.cache/huggingface
+      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+      LEGAL_RAG_EMBEDDING_MODEL: ${LEGAL_RAG_EMBEDDING_MODEL:-BAAI/bge-small-zh-v1.5}
       LEGAL_RAG_RERANKER_MODEL: ${LEGAL_RAG_RERANKER_MODEL:-off}
       LEGAL_RAG_WARMUP_ON_STARTUP: ${LEGAL_RAG_WARMUP_ON_STARTUP:-0}
       LEGAL_RAG_WARMUP_QUERY: ${LEGAL_RAG_WARMUP_QUERY:-试用期最长多久？}
@@ -28,9 +40,9 @@ services:
       - law_index:/app/chroma_llama_law
       - company_index:/app/chroma_llama_company
       - hf_cache:/app/.cache/huggingface
-      - ${LOCAL_HF_HUB:-./.cache/hf-hub}:/models/hf-hub:ro
-      - ${LOCAL_BGE_M3_MODEL_DIR:-./.cache/bge-m3}:/models/hf-hub/models--BAAI--bge-m3:ro
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -59,17 +71,18 @@ services:
       LEGAL_RAG_LLAMA_COMPANY_CHROMA_DIR: /app/chroma_llama_company
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
       HF_HOME: /app/.cache/huggingface
-      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-1}
-      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-1}
-      LEGAL_RAG_EMBEDDING_MODEL: ${LEGAL_RAG_EMBEDDING_MODEL:-/models/hf-hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181}
+      LLAMA_INDEX_CACHE_DIR: /app/.cache/huggingface
+      TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+      LEGAL_RAG_EMBEDDING_MODEL: ${LEGAL_RAG_EMBEDDING_MODEL:-BAAI/bge-small-zh-v1.5}
       LEGAL_RAG_RERANKER_MODEL: ${LEGAL_RAG_RERANKER_MODEL:-off}
     volumes:
       - uploads:/app/storage/uploads
       - company_index:/app/chroma_llama_company
       - hf_cache:/app/.cache/huggingface
-      - ${LOCAL_HF_HUB:-./.cache/hf-hub}:/models/hf-hub:ro
-      - ${LOCAL_BGE_M3_MODEL_DIR:-./.cache/bge-m3}:/models/hf-hub/models--BAAI--bge-m3:ro
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    env:
+      DEEPSEEK_API_KEY: ""
+      DATABASE_URL: ""
+      REDIS_URL: ""
+      CHROMA_HOST: ""
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      LEGAL_RAG_WARMUP_ON_STARTUP: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.11"
+      - run: uv venv
+      - run: uv pip sync requirements-ci.txt
+      - name: Static checks for syntax and invalid constructs
+        run: .venv/bin/ruff check --select E9,F63,F7,F82 app evaluation tests
+      - run: .venv/bin/python -m pytest -q -rs
+      - name: Deterministic routing evaluation
+        run: |
+          .venv/bin/python -m evaluation.agent.suite --suite split --routing-only --output-dir /tmp/agent-routing
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          results = list(Path('/tmp/agent-routing').glob('agent_eval_suite_*.json'))
+          assert len(results) == 1
+          summary = json.loads(results[0].read_text())
+          for subset in summary['runs']:
+              assert subset['failed'] == 0, subset
+              for metric in subset['metrics'].values():
+                  assert metric['correct'] == metric['valid_samples'], subset
+          PY
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run typecheck
+      - run: npm --prefix frontend run build

@@ -1,0 +1,50 @@
+{
+  "model_mode": "no-key fallback; no model quality claim",
+  "health": {
+    "status": "ok"
+  },
+  "readiness": {
+    "status": "degraded",
+    "dependencies": {
+      "database": {
+        "status": "ok",
+        "detail": "connected"
+      },
+      "redis": {
+        "status": "ok",
+        "detail": "connected"
+      },
+      "chroma": {
+        "status": "ok",
+        "detail": "chroma:8000"
+      },
+      "model_api": {
+        "status": "degraded",
+        "detail": "DEEPSEEK_API_KEY is not configured"
+      }
+    },
+    "document_counts": {
+      "pending": 0,
+      "indexing": 0,
+      "ready": 0,
+      "failed": 0,
+      "total": 0
+    }
+  },
+  "doc_id": "7dcad86e-14bd-4ca0-a4f3-db58350a3963",
+  "task_id": "5c47c887-5d5c-4ff3-8def-d45e20e9b521",
+  "document_status": "ready",
+  "chunk_count": 1,
+  "policy_query_intent": "policy_qa",
+  "policy_citation_found": true,
+  "review_id": "8a84129b-5ec0-4f71-b92b-449cc0ad793d",
+  "review_status": "approved",
+  "admin_auth_checked": true,
+  "metrics_checked": true,
+  "restart_persistence_checked": true,
+  "duplicate_approval_rejected": true,
+  "code_commit_baseline": "ec4fe49",
+  "working_tree_dirty": true,
+  "compose_sha256": "cf5f9c8470cc59a2aa9d46dd5439b77378f78ececefbb6bf7ad9689ce1716737",
+  "harness_sha256": "5b4d9ac6e6bea77c83411b251ed1a94e42f767fd09f46a49966952cf4312f737"
+}

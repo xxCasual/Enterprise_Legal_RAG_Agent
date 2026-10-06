@@ -27,10 +27,15 @@
 | 法律问答：路由、检索与引用 | 已验证 | “试用期最长多久？”路由为法条查询，调用 `search_law_articles`，引用含《劳动合同法》第十九条 |
 | 法律问答：真实模型生成回答 | 已验证（n=1） | `deepseek-chat`：planner 以工具调用选择 `search_law_articles`，返回 4 条引用，回答依据第十九条给出 1 / 2 / 6 个月三档上限；2 次模型请求，接口耗时约 15 s。无有效 Key 时模型返回 401，接口降级为直接返回检索到的法条原文 |
 | 合同审查与人工复核 | 已验证 | 高风险样例返回 `pending_review`，管理员登录并批准后返回逐条款 `risk_level`、`analysis`、`suggestion` |
-| 自动检查 | 已验证 | `pytest` 85 passed；Agent Eval `--routing-only` 59 条全部通过；前端 `npm ci`、类型检查、构建通过。尚无 CI |
-| Docker Compose 生产栈、worker 异步索引、PostgreSQL / Chroma server | 本轮未重跑 | 依据为开发期记录，见 [PRODUCTION.md](PRODUCTION.md) |
+| 自动检查 | 已验证 | Python 3.11 轻量锁定依赖环境：`pytest` 87 passed；Agent Eval `evaluation.agent.suite --routing-only` 59 条全部通过；前端 `npm ci`、类型检查、构建通过。已配置 CI，远端执行结果见 Actions |
+| Docker Compose 生产栈、迁移、worker、PostgreSQL / Chroma | 已验证 | 从空 volumes 启动；真实 embedding 索引与制度查询、审批、鉴权、指标、API/worker 重启持久化通过；[冷启动记录](docs/validation/production-smoke-20261006.json)、[最终配置复验](docs/validation/default-final-smoke-20261006.json) |
+| 离线 embedding override | 已验证 | 完整 bge-small 模型文件挂载，offline 标志开启，上传→worker→Chroma→制度查询通过；未做网络断开测试；[运行记录](docs/validation/offline-smoke-20261006.json) |
 
-已知限制：合同审查是关键词规则，覆盖有限。例如“一年期合同约定六个月试用期”“每天 10 小时不付加班费”只被标为低风险；含“劳动合同”“试用期”等词的法律问题（如“劳动合同期限一年的，试用期最长可以约定多久？”）会被 guardrail 直接路由到合同审查。`requirements.txt` 未锁定版本，本次安装解析到的是 2026-10 的最新版本。
+已知限制：合同审查是关键词规则，覆盖有限。例如“一年期合同约定六个月试用期”“每天 10 小时不付加班费”只被标为低风险；含“劳动合同”“试用期”等词的法律问题（如“劳动合同期限一年的，试用期最长可以约定多久？”）会被 guardrail 直接路由到合同审查。运行依赖仅 Chroma 固定版本，其余尚未全部锁定；本次容器解析结果见 [依赖快照](docs/validation/runtime-packages-20261006.txt)。
+
+[配置与持久化边界](docs/configuration-and-boundaries.md) 对比开发、生产和离线模式。JSON fallback 限单 API 进程；Redis BLPOP 队列的可捕获异常重试已有回归，进程崩溃后的在途回收尚未实现。`/api/ready` 应检查 JSON body；模型项只检查 Key 配置，指标是各 API 进程的内存计数。
+
+低成本 CI 使用 `requirements-ci.txt` 锁定完整轻量依赖，检查语法/无效构造、确定性测试、无 Key 路由和前端类型/构建，不安装模型权重。它不替代真实 embedding/Chroma 的集成验证。
 
 ## 评测与历史指标
 
@@ -97,15 +102,15 @@ flowchart LR
 
 ## 快速开始：Docker 生产化演示
 
-Docker Compose 用于启动完整链路（本轮未重跑，见上方验证状态）。只想快速体验可先用下方[本地开发](#快速开始本地开发)路径。
+Docker Compose 用于启动完整链路，验证范围见上表。只想快速体验可先用下方[本地开发](#快速开始本地开发)路径。
 
 1. 准备环境变量：
 
 ```bash
-cp .env.example .env
+cp .env.production.example .env
 ```
 
-至少修改这三个值：
+至少配置模型 Key（真实模型问答时需要）和管理 token：
 
 ```env
 DEEPSEEK_API_KEY=your_key
@@ -114,19 +119,18 @@ API_AUTH_TOKEN=replace_with_a_random_token
 
 2. 选择 embedding 模型。
 
-`.env.example` 默认使用公开模型 `BAAI/bge-small-zh-v1.5`，首次使用时联网下载到容器内 `hf_cache` volume，不需要挂载宿主机目录。如果已有本地 bge-m3 缓存并希望离线运行，取消 `.env` 中离线段的注释，并填写宿主机真实路径：
+默认使用公开模型 `BAAI/bge-small-zh-v1.5`，首次使用时联网下载到容器内 `hf_cache` volume，不挂载宿主机目录。已有完整离线模型时，准备实际文件目录并使用单独 override：
 
 ```env
 TRANSFORMERS_OFFLINE=1
 HF_HUB_OFFLINE=1
-LEGAL_RAG_EMBEDDING_MODEL=/models/hf-hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181
-LOCAL_HF_HUB=/absolute/path/to/.cache/huggingface/hub
-LOCAL_BGE_M3_MODEL_DIR=/absolute/path/to/.cache/huggingface/hub/models--BAAI--bge-m3
+LOCAL_EMBEDDING_MODEL_DIR=./.cache/embedding-model
+LEGAL_RAG_EMBEDDING_MODEL=/models/embedding
 ```
 
 两种模型的检索效果不同，更换后不能沿用另一种配置下的评测结论。
 
-如果 `models--BAAI--bge-m3` 是软链接，`LOCAL_BGE_M3_MODEL_DIR` 要填真实目录。Apple Silicon 上 Docker/Colima 里的 bge-m3 默认跑 CPU，不会使用 M4 的 Metal/MPS。
+离线启动命令为 `docker compose -f docker-compose.prod.yml -f docker-compose.offline.yml up -d --build`。模型目录必须存在，包含完整文件，不能有指向挂载范围外的软链接。Apple Silicon 的 CPU 容器不会自动使用 Metal/MPS。
 
 3. 启动完整栈：
 
@@ -211,8 +215,7 @@ npm run dev
 | `ADMIN_SESSION_TTL_SECONDS` | 管理员 cookie 会话有效期 |
 | `LEGAL_RAG_WARMUP_ON_STARTUP` | 启动后是否后台预热法律 RAG |
 | `VITE_API_BASE_URL` | 前端构建时 API base；Compose 下保持空 |
-| `LOCAL_HF_HUB` | Docker 挂载宿主机 HuggingFace hub |
-| `LOCAL_BGE_M3_MODEL_DIR` | Docker 挂载 bge-m3 真实目录 |
+| `LOCAL_EMBEDDING_MODEL_DIR` | 离线 override 挂载的完整模型文件目录 |
 
 `LEGAL_RAG_CRAG_MODE` 的含义：
 
@@ -474,11 +477,13 @@ curl http://localhost:8080/api/ready
 
 ### bge-m3 在 Docker 中路径不存在
 
-如果宿主机 HuggingFace cache 里的 `models--BAAI--bge-m3` 是软链接，容器只能看到链接，未必能访问真实目录。设置：
+离线模型文件必须在 `LOCAL_EMBEDDING_MODEL_DIR` 指定目录中，且软链接不能指向挂载范围外。准备完整模型后使用离线 override：
 
-```env
-LOCAL_BGE_M3_MODEL_DIR=/absolute/path/to/real/models--BAAI--bge-m3
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.offline.yml up -d
 ```
+
+默认联网路径不需要本机模型挂载。
 
 ### Chroma 报 `_type`
 

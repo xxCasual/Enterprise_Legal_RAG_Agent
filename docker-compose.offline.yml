@@ -1,0 +1,27 @@
+# Optional override; use with docker-compose.prod.yml after preparing model files.
+# The bind source must exist and contain a complete, materialized model directory.
+services:
+  api:
+    environment:
+      LEGAL_RAG_EMBEDDING_MODEL: /models/embedding
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      - type: bind
+        source: ${LOCAL_EMBEDDING_MODEL_DIR:?Prepare a complete LOCAL_EMBEDDING_MODEL_DIR first}
+        target: /models/embedding
+        read_only: true
+        bind:
+          create_host_path: false
+  worker:
+    environment:
+      LEGAL_RAG_EMBEDDING_MODEL: /models/embedding
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      - type: bind
+        source: ${LOCAL_EMBEDDING_MODEL_DIR:?Prepare a complete LOCAL_EMBEDDING_MODEL_DIR first}
+        target: /models/embedding
+        read_only: true
+        bind:
+          create_host_path: false

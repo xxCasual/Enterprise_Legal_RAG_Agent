@@ -1,0 +1,54 @@
+{
+  "model_mode": "no-key fallback; no model quality claim",
+  "health": {
+    "status": "ok"
+  },
+  "readiness": {
+    "status": "degraded",
+    "dependencies": {
+      "database": {
+        "status": "ok",
+        "detail": "connected"
+      },
+      "redis": {
+        "status": "ok",
+        "detail": "connected"
+      },
+      "chroma": {
+        "status": "ok",
+        "detail": "chroma:8000"
+      },
+      "model_api": {
+        "status": "degraded",
+        "detail": "DEEPSEEK_API_KEY is not configured"
+      }
+    },
+    "document_counts": {
+      "pending": 0,
+      "indexing": 0,
+      "ready": 1,
+      "failed": 0,
+      "total": 1
+    }
+  },
+  "doc_id": "fa3d17ac-20ba-4083-8b86-409b1df30369",
+  "task_id": "afd54624-ed0a-46f0-a4d0-5789fab3e3b1",
+  "document_status": "ready",
+  "chunk_count": 1,
+  "policy_query_intent": "policy_qa",
+  "policy_citation_found": true,
+  "review_id": "954027fd-f317-400b-8524-9059b30e77ad",
+  "review_status": "approved",
+  "admin_auth_checked": true,
+  "metrics_checked": true,
+  "code_commit": "ec4fe499cd253ea2927f531ced26adde2ca27163",
+  "working_tree_changes": true,
+  "embedding_model": "BAAI/bge-small-zh-v1.5",
+  "embedding_snapshot": "7999e1d3359715c523056ef9478215996d62a620",
+  "model_directory": "materialized files mounted at /models/embedding",
+  "HF_HUB_OFFLINE": "1",
+  "TRANSFORMERS_OFFLINE": "1",
+  "network_isolation_tested": false,
+  "compose_sha256": "eb50742d7713285c5c1f6ac7eb3b2648ec54b0f3193bd8cef079e419ecde8cbf",
+  "offline_override_sha256": "9f6e3c41cb60f1326406fd134d84735ad55d3918c4e9309c551ded8891722e45"
+}
