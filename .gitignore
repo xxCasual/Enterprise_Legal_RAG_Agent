@@ -44,5 +44,6 @@ data/eval/results/
 .DS_Store
 
 # 模型缓存
+.cache/
 *.bin
 *.safetensors

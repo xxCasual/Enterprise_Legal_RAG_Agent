@@ -28,8 +28,8 @@ services:
       - law_index:/app/chroma_llama_law
       - company_index:/app/chroma_llama_company
       - hf_cache:/app/.cache/huggingface
-      - ${LOCAL_HF_HUB:-/Users/xxcasual/.cache/huggingface/hub}:/models/hf-hub:ro
-      - ${LOCAL_BGE_M3_MODEL_DIR:-/Users/xxcasual/.hermes/profiles/chat/home/.cache/huggingface/hub/models--BAAI--bge-m3}:/models/hf-hub/models--BAAI--bge-m3:ro
+      - ${LOCAL_HF_HUB:-./.cache/hf-hub}:/models/hf-hub:ro
+      - ${LOCAL_BGE_M3_MODEL_DIR:-./.cache/bge-m3}:/models/hf-hub/models--BAAI--bge-m3:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,8 +67,8 @@ services:
       - uploads:/app/storage/uploads
       - company_index:/app/chroma_llama_company
       - hf_cache:/app/.cache/huggingface
-      - ${LOCAL_HF_HUB:-/Users/xxcasual/.cache/huggingface/hub}:/models/hf-hub:ro
-      - ${LOCAL_BGE_M3_MODEL_DIR:-/Users/xxcasual/.hermes/profiles/chat/home/.cache/huggingface/hub/models--BAAI--bge-m3}:/models/hf-hub/models--BAAI--bge-m3:ro
+      - ${LOCAL_HF_HUB:-./.cache/hf-hub}:/models/hf-hub:ro
+      - ${LOCAL_BGE_M3_MODEL_DIR:-./.cache/bge-m3}:/models/hf-hub/models--BAAI--bge-m3:ro
     depends_on:
       postgres:
         condition: service_healthy

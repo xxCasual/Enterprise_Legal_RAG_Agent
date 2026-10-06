@@ -19,6 +19,25 @@
 | 可观测性 | 结构化请求日志、`X-Request-ID`、接口耗时、工具调用耗时、`/api/ready`、`/api/metrics` |
 | 前端控制台 | React + Vite + TypeScript，覆盖问答、文档、合同审查、人工审批和系统状态 |
 
+## 验证状态（2026-10-06，macOS Apple Silicon，全新 clone）
+
+| 范围 | 状态 | 记录 |
+|---|---|---|
+| 本地开发路径（JSON fallback，无 PostgreSQL / Redis） | 已验证 | Python 3.11 venv 按 `requirements.txt` 安装；`/api/health`、`/api/ready` 正常；首次问答下载 `BAAI/bge-small-zh-v1.5` 并建索引约 83 s，之后检索约 0.3 s |
+| 法律问答：路由、检索与引用 | 已验证 | “试用期最长多久？”路由为法条查询，调用 `search_law_articles`，引用含《劳动合同法》第十九条 |
+| 法律问答：真实模型生成回答 | 已验证（n=1） | `deepseek-chat`：planner 以工具调用选择 `search_law_articles`，返回 4 条引用，回答依据第十九条给出 1 / 2 / 6 个月三档上限；2 次模型请求，接口耗时约 15 s。无有效 Key 时模型返回 401，接口降级为直接返回检索到的法条原文 |
+| 合同审查与人工复核 | 已验证 | 高风险样例返回 `pending_review`，管理员登录并批准后返回逐条款 `risk_level`、`analysis`、`suggestion` |
+| 自动检查 | 已验证 | `pytest` 85 passed；Agent Eval `--routing-only` 59 条全部通过；前端 `npm ci`、类型检查、构建通过。尚无 CI |
+| Docker Compose 生产栈、worker 异步索引、PostgreSQL / Chroma server | 本轮未重跑 | 依据为开发期记录，见 [PRODUCTION.md](PRODUCTION.md) |
+
+已知限制：合同审查是关键词规则，覆盖有限。例如“一年期合同约定六个月试用期”“每天 10 小时不付加班费”只被标为低风险；含“劳动合同”“试用期”等词的法律问题（如“劳动合同期限一年的，试用期最长可以约定多久？”）会被 guardrail 直接路由到合同审查。`requirements.txt` 未锁定版本，本次安装解析到的是 2026-10 的最新版本。
+
+## 评测与历史指标
+
+检索链路的 RAGAS 评测（五个版本、两种重排配置在相同 48 题上 Context Recall 0.828 → 0.889）是在本项目的前身 LangChain 原型 [legal-rag-system](https://github.com/xxCasual/legal-rag-system) 上完成的，原始结果与复算方法见其 [evaluation/published-results](https://github.com/xxCasual/legal-rag-system/tree/main/evaluation/published-results)。这些数字不代表本重构版的效果。
+
+本仓库 `evaluation/rag` 中的 `context_recall` 是自定义文本匹配指标（参考上下文是否出现在检索结果中），不是 RAGAS 的 `LLMContextRecall`，两者数值不能比较。
+
 ## 技术栈
 
 | 层次 | 技术 |
@@ -78,7 +97,7 @@ flowchart LR
 
 ## 快速开始：Docker 生产化演示
 
-推荐用 Docker Compose 验收完整链路。
+Docker Compose 用于启动完整链路（本轮未重跑，见上方验证状态）。只想快速体验可先用下方[本地开发](#快速开始本地开发)路径。
 
 1. 准备环境变量：
 
@@ -93,18 +112,19 @@ DEEPSEEK_API_KEY=your_key
 API_AUTH_TOKEN=replace_with_a_random_token
 ```
 
-2. 如果使用本地 bge-m3，确认 `.env` 里的模型路径。
+2. 选择 embedding 模型。
 
-当前 Compose 默认把宿主机 HuggingFace cache 挂到容器：
+`.env.example` 默认使用公开模型 `BAAI/bge-small-zh-v1.5`，首次使用时联网下载到容器内 `hf_cache` volume，不需要挂载宿主机目录。如果已有本地 bge-m3 缓存并希望离线运行，取消 `.env` 中离线段的注释，并填写宿主机真实路径：
 
 ```env
 TRANSFORMERS_OFFLINE=1
 HF_HUB_OFFLINE=1
 LEGAL_RAG_EMBEDDING_MODEL=/models/hf-hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181
-LEGAL_RAG_RERANKER_MODEL=off
-LOCAL_HF_HUB=/Users/your-name/.cache/huggingface/hub
-LOCAL_BGE_M3_MODEL_DIR=/Users/your-name/.cache/huggingface/hub/models--BAAI--bge-m3
+LOCAL_HF_HUB=/absolute/path/to/.cache/huggingface/hub
+LOCAL_BGE_M3_MODEL_DIR=/absolute/path/to/.cache/huggingface/hub/models--BAAI--bge-m3
 ```
+
+两种模型的检索效果不同，更换后不能沿用另一种配置下的评测结论。
 
 如果 `models--BAAI--bge-m3` 是软链接，`LOCAL_BGE_M3_MODEL_DIR` 要填真实目录。Apple Silicon 上 Docker/Colima 里的 bge-m3 默认跑 CPU，不会使用 M4 的 Metal/MPS。
 
@@ -148,14 +168,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-本地开发如果不用 Docker 容器路径，需要把 `.env` 里的 embedding 改成 HuggingFace model id 或本机真实路径：
-
-```env
-LEGAL_RAG_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
-LEGAL_RAG_RERANKER_MODEL=off
-TRANSFORMERS_OFFLINE=0
-HF_HUB_OFFLINE=0
-```
+`.env` 中填入 `DEEPSEEK_API_KEY`，并把 `API_AUTH_TOKEN` 换成随机值（如 `openssl rand -hex 32`）。默认 embedding 为 `BAAI/bge-small-zh-v1.5`，首次问答时从 `HF_ENDPOINT` 下载（约 100 MB）。
 
 启动 API：
 
@@ -307,7 +320,7 @@ curl -sS -X POST http://localhost:8080/api/reviews/{review_id}/reject \
   -> LLM 根据法律条文生成回答
 ```
 
-当前 Docker 默认使用本地 bge-m3 做 embedding，`LEGAL_RAG_RERANKER_MODEL=off`。因此默认链路是 BM25 + bge-m3 向量检索 + RRF 融合，不加载 reranker。首次请求可能触发法律库 embedding 和 Chroma 写入，会比较慢；索引建立后后续请求会明显变快。
+按 `.env.example` 默认配置，embedding 为 `BAAI/bge-small-zh-v1.5`，`LEGAL_RAG_RERANKER_MODEL=off`。因此默认链路是 BM25 + 向量检索 + RRF 融合，不加载 reranker；离线配置下向量模型为 bge-m3。首次请求可能触发法律库 embedding 和 Chroma 写入，会比较慢；索引建立后后续请求会明显变快。
 
 企业制度问答的主流程：
 
