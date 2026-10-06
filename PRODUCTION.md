@@ -122,3 +122,5 @@ API_AUTH_TOKEN=replace_with_a_random_token ./venv/bin/python scripts/stress_mixe
 另用完整 bge-small 模型文件目录及 offline override 复验上传/索引/查询。仅验证本地文件加载及 offline 设置，未模拟断网。原配置将只读模型父目录与子目录嵌套挂载导致空宿主机目录冷启动失败；已将离线挂载移至单独 override。LlamaIndex 缓存目录通过 `LLAMA_INDEX_CACHE_DIR` 与共享缓存 volume 对齐。
 
 记录：`docs/validation/production-smoke-20261006.json`、`offline-smoke-20261006.json`；Python 3.12 / Linux aarch64 依赖快照 `runtime-packages-20261006.txt`。最终默认配置复验见 `default-final-smoke-20261006.json`（复用上述 volumes）。报告来自记录的基线提交加当时工作区变更，配置摘要可核对；不是该基线提交原样通过的声明。
+
+轻量远端CI：提交 `bd8b76b`，[run 37420768381](https://github.com/xxCasual/Enterprise_Legal_RAG_Agent/actions/runs/37420768381) Python/路由与前端检查均成功；生产/离线真实模型索引由本地报告覆盖，尚未在CI内构建完整模型栈。

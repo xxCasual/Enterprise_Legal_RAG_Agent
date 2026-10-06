@@ -27,7 +27,7 @@
 | 法律问答：路由、检索与引用 | 已验证 | “试用期最长多久？”路由为法条查询，调用 `search_law_articles`，引用含《劳动合同法》第十九条 |
 | 法律问答：真实模型生成回答 | 已验证（n=1） | `deepseek-chat`：planner 以工具调用选择 `search_law_articles`，返回 4 条引用，回答依据第十九条给出 1 / 2 / 6 个月三档上限；2 次模型请求，接口耗时约 15 s。无有效 Key 时模型返回 401，接口降级为直接返回检索到的法条原文 |
 | 合同审查与人工复核 | 已验证 | 高风险样例返回 `pending_review`，管理员登录并批准后返回逐条款 `risk_level`、`analysis`、`suggestion` |
-| 自动检查 | 已验证 | Python 3.11 轻量锁定依赖环境：`pytest` 87 passed；Agent Eval `evaluation.agent.suite --routing-only` 59 条全部通过；前端 `npm ci`、类型检查、构建通过。已配置 CI，远端执行结果见 Actions |
+| 自动检查 | 已验证 | Python 3.11 轻量锁定依赖环境：`pytest` 87 passed；Agent Eval `evaluation.agent.suite --routing-only` 59 条全部通过；前端 `npm ci`、类型检查、构建通过。[远端 CI 已绿](https://github.com/xxCasual/Enterprise_Legal_RAG_Agent/actions/runs/37420768381)（验证提交 `bd8b76b`） |
 | Docker Compose 生产栈、迁移、worker、PostgreSQL / Chroma | 已验证 | 从空 volumes 启动；真实 embedding 索引与制度查询、审批、鉴权、指标、API/worker 重启持久化通过；[冷启动记录](docs/validation/production-smoke-20261006.json)、[最终配置复验](docs/validation/default-final-smoke-20261006.json) |
 | 离线 embedding override | 已验证 | 完整 bge-small 模型文件挂载，offline 标志开启，上传→worker→Chroma→制度查询通过；未做网络断开测试；[运行记录](docs/validation/offline-smoke-20261006.json) |
 
